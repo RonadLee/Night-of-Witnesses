@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
+@import 'tailwindcss';
+
+:root {
+  --bg-deep: #0b1210;
+  --bg-mist: #15201c;
+  --ember: #c45c26;
+  --ember-hot: #e0783a;
+  --fog: #8fa89a;
+  --fog-dim: #5c7368;
+  --paper: #e8efe9;
+  --danger: #b33a3a;
+  --panel: rgba(18, 28, 24, 0.72);
+  --line: rgba(143, 168, 154, 0.28);
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'Figtree', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  color: var(--paper);
+  font-family: var(--font-body);
+  background: var(--bg-deep);
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 80% -10%, rgba(196, 92, 38, 0.28), transparent 55%),
+    radial-gradient(900px 600px at 10% 20%, rgba(60, 90, 78, 0.45), transparent 50%),
+    linear-gradient(180deg, #101816 0%, #0b1210 45%, #120e0c 100%);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ember-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes steam {
+  0% {
+    transform: translateY(0) scaleX(1);
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateY(-40px) scaleX(1.2);
+    opacity: 0;
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.7s ease-out both;
+}
+
+.animate-rise-delay {
+  animation: rise-in 0.8s ease-out 0.12s both;
+}
+
+.ember-glow {
+  animation: ember-pulse 4.5s ease-in-out infinite;
+}
+
+.steam {
+  animation: steam 6s linear infinite;
+}

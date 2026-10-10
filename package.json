@@ -1,0 +1,21 @@
+{
+  "name": "night-of-witnesses",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @now/web --filter @now/game-server dev",
+    "dev:web": "pnpm --filter @now/web dev",
+    "dev:server": "pnpm --filter @now/game-server dev",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm --filter @now/game-engine test",
+    "test:e2e": "pnpm --filter @now/web test:e2e",
+    "lint": "pnpm -r run lint",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  }
+}
