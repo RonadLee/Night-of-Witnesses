@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { SoloClient } from './SoloClient';
 
+export const dynamic = 'force-dynamic';
+
 export default function SoloPage() {
   return (
     <main className="min-h-screen">

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { MultiplayerClient } from './MultiplayerClient';
 
+export const dynamic = 'force-dynamic';
+
 export default function MultiplayerPage() {
   return (
     <main className="min-h-screen">

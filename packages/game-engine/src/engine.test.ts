@@ -106,6 +106,13 @@ describe('privacy getView', () => {
       expect(p).not.toHaveProperty('hand');
     }
     expect(otherRoles.every(Boolean)).toBe(true);
+    // Serialized client payload must not embed other players' roles as JSON fields
+    const payload = JSON.stringify(humanView);
+    for (const p of state.players) {
+      if (p.id === 'human') continue;
+      expect(payload).not.toContain(`"role":"${p.role}"`);
+    }
+    expect(payload).not.toContain(`"guestRoomCard":"${state.guestRoomCard}"`);
   });
 });
 
