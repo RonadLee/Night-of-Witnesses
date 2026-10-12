@@ -1,5 +1,18 @@
 import type { RoleId } from '@now/game-types';
 
+export const ALL_ROLE_IDS: RoleId[] = [
+  'murderer',
+  'accomplice',
+  'bomber',
+  'butler',
+  'detective',
+  'merchant',
+  'lawyer',
+  'guest_yellow',
+  'guest_blue',
+  'guest_red',
+];
+
 export const ROLE_LABELS: Record<RoleId, string> = {
   murderer: 'Murderer',
   accomplice: 'Accomplice',
@@ -39,11 +52,13 @@ export const ROLE_IMAGES: Record<RoleId, string> = {
   guest_red: '/roles/guest-red.png',
 };
 
-export function roleLabel(role: RoleId): string {
+export function roleLabel(role: RoleId | null | undefined): string {
+  if (!role) return '—';
   return ROLE_LABELS[role] ?? role;
 }
 
-export function roleLabelZh(role: RoleId): string {
+export function roleLabelZh(role: RoleId | null | undefined): string {
+  if (!role) return '—';
   return ROLE_LABELS_ZH[role] ?? role;
 }
 

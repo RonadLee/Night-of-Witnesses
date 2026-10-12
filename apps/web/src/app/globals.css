@@ -280,6 +280,73 @@ select {
   animation: rise-in 0.35s ease-out both;
 }
 
+.role-card-art {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.role-card-art-img {
+  aspect-ratio: 262 / 364;
+  display: block;
+}
+
+.pass-fly-inner {
+  animation: pass-fly-pop 1.55s ease-out both;
+}
+
+.pass-fly-card {
+  animation: pass-fly-card 1.55s ease-in-out both;
+}
+
+.pass-fly-arrow {
+  animation: pass-fly-arrow 1.55s ease-in-out both;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+@keyframes pass-fly-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.85) translateY(12px);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-8px);
+  }
+}
+
+@keyframes pass-fly-card {
+  0% {
+    transform: translateY(-18px) rotate(-6deg);
+  }
+  40% {
+    transform: translateY(0) rotate(2deg);
+  }
+  100% {
+    transform: translateY(18px) rotate(-2deg);
+  }
+}
+
+@keyframes pass-fly-arrow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 640px) {
   .circular-seat,
   .lobby-seat-preview {

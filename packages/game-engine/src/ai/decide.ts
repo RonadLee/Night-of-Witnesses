@@ -28,6 +28,36 @@ const COVER_ROLES: RoleId[] = [
   'guest_red',
 ];
 
+function choosePassClaim(
+  actual: RoleId,
+  difficulty: import('@now/game-types').AiDifficulty,
+  rng: () => number,
+  ctx: {
+    isMurderSide: boolean;
+    isBomber: boolean;
+    personality: import('@now/game-types').AiPersonality | null;
+  },
+): RoleId {
+  const cover = pickRandom(COVER_ROLES, rng);
+  // Easy: often tell the truth or random claim
+  if (difficulty === 'easy') {
+    if (rng() < 0.55) return actual;
+    return pickRandom(ALL_ROLES, rng);
+  }
+  // Dangerous cards: bluff more often
+  const hot = actual === 'murderer' || actual === 'bomber' || actual === 'accomplice';
+  const deceptive =
+    ctx.personality === 'deceptive' || ctx.isMurderSide || ctx.isBomber || hot;
+  const bluffChance =
+    difficulty === 'expert' ? (deceptive ? 0.85 : 0.45) : difficulty === 'hard' ? (deceptive ? 0.7 : 0.35) : 0.25;
+  if (rng() > bluffChance) return actual;
+  // Prefer safe cover roles when bluffing hot cards
+  if (hot) return cover;
+  // Sometimes claim a hotter card to bait votes
+  if (rng() < 0.25) return pickRandom(['murderer', 'bomber', 'detective'] as RoleId[], rng);
+  return cover;
+}
+
 function chatLine(state: MatchState, playerId: string, rng: () => number): string {
   const mind = state.aiMinds[playerId];
   const suspect = mind ? mostSuspicious(mind) : null;
@@ -37,6 +67,25 @@ function chatLine(state: MatchState, playerId: string, rng: () => number): strin
   const role = state.players.find((p) => p.id === playerId)?.role;
   const isMurder = role === 'murderer' || role === 'accomplice';
   const isBomber = role === 'bomber';
+  const lastClaim = state.passHistory.length
+    ? state.passHistory[state.passHistory.length - 1]
+    : null;
+  const claimName = lastClaim
+    ? (state.players.find((p) => p.id === lastClaim.fromPlayerId)?.name ?? 'Someone')
+    : null;
+  const claimRole = lastClaim?.claimedRole;
+
+  if (claimName && claimRole && rng() < 0.45) {
+    return pickRandom(
+      [
+        `${claimName} told me they passed a ${claimRole.replace(/_/g, ' ')} card.`,
+        `I don't believe ${claimName}'s ${claimRole.replace(/_/g, ' ')} claim.`,
+        `Remember: ${claimName} claimed ${claimRole.replace(/_/g, ' ')}.`,
+        `That ${claimRole.replace(/_/g, ' ')} pass from ${claimName} feels off.`,
+      ],
+      rng,
+    );
+  }
 
   switch (mind?.personality) {
     case 'aggressive':
@@ -129,9 +178,21 @@ export function chooseAiAction(
         keepIndex = (1 - murderIdx) as 0 | 1;
       }
     }
-    const passRole = hand[1 - keepIndex];
-    if (mind && passRole) remember(mind, `Passed ${passRole}`);
-    return { type: 'keep_card', keepIndex };
+    const passRole = hand[1 - keepIndex]!;
+    const claimedRole = choosePassClaim(passRole, mind?.difficulty ?? 'normal', rng, {
+      isMurderSide: passRole === 'murderer' || passRole === 'accomplice' || isMurderSide,
+      isBomber: passRole === 'bomber' || isBomber,
+      personality: mind?.personality ?? null,
+    });
+    if (mind) {
+      remember(
+        mind,
+        claimedRole === passRole
+          ? `Passed ${passRole} (truth)`
+          : `Passed ${passRole} but claimed ${claimedRole}`,
+      );
+    }
+    return { type: 'keep_card', keepIndex, claimedRole };
   }
 
   if (legal.includes('announce_sighting')) {

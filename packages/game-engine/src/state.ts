@@ -55,9 +55,18 @@ export interface MatchState {
   passHistory: Array<{
     fromPlayerId: string;
     toPlayerId: string | 'guest_room';
-    role: RoleId;
+    /** Actual card moved (always stored server-side). */
+    actualRole: RoleId;
+    /** What was announced publicly (may differ). */
+    claimedRole: RoleId;
     reason?: string;
   }>;
+  lastPassAnimation: {
+    fromPlayerId: string;
+    toPlayerId: string | 'guest_room';
+    claimedRole: RoleId;
+    at: number;
+  } | null;
   winnerSide: WinnerSide;
   /** Alias of privateRoomPlayerId for UI compatibility */
   lockedPlayerId: string | null;
@@ -126,6 +135,7 @@ export function pushActivity(
   message: string,
   actorPlayerId?: string,
   at = Date.now(),
+  meta?: { claimedRole?: RoleId; toPlayerId?: string | 'guest_room' },
 ): void {
   state.eventSeq += 1;
   state.activity.push({
@@ -134,6 +144,8 @@ export function pushActivity(
     kind,
     actorPlayerId,
     message,
+    claimedRole: meta?.claimedRole,
+    toPlayerId: meta?.toPlayerId,
   });
   if (state.activity.length > 80) {
     state.activity = state.activity.slice(-80);

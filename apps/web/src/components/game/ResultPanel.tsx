@@ -2,6 +2,7 @@
 
 import type { PlayerMatchView, WinnerSide } from '@now/game-types';
 import { roleLabel, roleLabelZh } from '@/lib/roleLabels';
+import { RoleCardArt } from '@/components/game/RoleCardArt';
 
 interface Props {
   view: PlayerMatchView;
@@ -50,16 +51,20 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
             Full role reveal
           </h4>
-          <ul className="mt-1 space-y-1 text-sm">
-            {pub.players.map((p) => (
-              <li key={p.id}>
-                {p.name}:{' '}
-                <strong>
-                  {roleLabel(pub.revealedRoles![p.id]!)} / {roleLabelZh(pub.revealedRoles![p.id]!)}
-                </strong>
-                {p.isLocked ? ' — Private Room' : ''}
-              </li>
-            ))}
+          <ul className="mt-2 flex flex-wrap gap-3">
+            {pub.players.map((p) => {
+              const role = pub.revealedRoles![p.id];
+              if (!role) return null;
+              return (
+                <li key={p.id} className="flex flex-col items-center gap-1 text-center text-sm">
+                  <RoleCardArt role={role} size="sm" />
+                  <span>
+                    {p.name}
+                    {p.isLocked ? ' · Private Room' : ''}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -118,16 +123,59 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.passHistory.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Card passing history
+            Pass history (claim vs actual)
           </h4>
-          <ul className="mt-1 max-h-32 space-y-1 overflow-y-auto text-sm text-[var(--fog)]">
-            {pub.passHistory.map((h, i) => (
-              <li key={i}>
-                {pub.players.find((p) => p.id === h.fromPlayerId)?.name} →{' '}
-                {h.toPlayerId === 'guest_room'
+          <ul className="mt-2 space-y-3">
+            {pub.passHistory.map((h, i) => {
+              const from = pub.players.find((p) => p.id === h.fromPlayerId)?.name ?? h.fromPlayerId;
+              const to =
+                h.toPlayerId === 'guest_room'
                   ? 'Guest Room'
-                  : pub.players.find((p) => p.id === h.toPlayerId)?.name}{' '}
-                ({roleLabel(h.role)})
+                  : (pub.players.find((p) => p.id === h.toPlayerId)?.name ?? h.toPlayerId);
+              const bluff = h.actualRole && h.actualRole !== h.claimedRole;
+              return (
+                <li
+                  key={i}
+                  className="border border-[var(--line)] bg-[var(--bg-mist)] px-3 py-3 text-sm"
+                >
+                  <p className="font-semibold">
+                    {from} → {to}
+                    {bluff ? (
+                      <span className="ml-2 text-[var(--ember-hot)]">bluff</span>
+                    ) : (
+                      <span className="ml-2 text-[var(--fog-dim)]">truth</span>
+                    )}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-end gap-4">
+                    <div>
+                      <p className="mb-1 text-xs text-[var(--fog-dim)] uppercase">Claimed</p>
+                      <RoleCardArt role={h.claimedRole} size="sm" />
+                    </div>
+                    {h.actualRole && (
+                      <div>
+                        <p className="mb-1 text-xs text-[var(--fog-dim)] uppercase">
+                          Actually passed
+                        </p>
+                        <RoleCardArt role={h.actualRole} size="sm" />
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {pub.chat.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
+            Discussion timeline
+          </h4>
+          <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto text-sm text-[var(--fog)]">
+            {pub.chat.map((c, i) => (
+              <li key={i}>
+                <strong>{pub.players.find((p) => p.id === c.fromPlayerId)?.name}</strong>: {c.text}
               </li>
             ))}
           </ul>

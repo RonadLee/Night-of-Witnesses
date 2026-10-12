@@ -31,7 +31,7 @@ test('solo uses shared lobby/table and can complete a round', async ({ page }) =
       if (await chain.isVisible().catch(() => false)) {
         await chain.click();
       }
-      const confirm = page.getByRole('button', { name: 'Confirm' });
+      const confirm = page.getByRole('button', { name: /Confirm Pass|Confirm/i });
       if (await confirm.isVisible().catch(() => false)) {
         await confirm.click();
       }

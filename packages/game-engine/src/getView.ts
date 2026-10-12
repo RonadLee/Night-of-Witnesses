@@ -91,7 +91,18 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
     ),
     chat: state.chat,
     activity: state.activity,
-    passHistory: state.passHistory,
+    passHistory: state.passHistory.map((h) => {
+      const revealActual =
+        state.phase === 'result' || h.fromPlayerId === playerId || h.toPlayerId === playerId;
+      return {
+        fromPlayerId: h.fromPlayerId,
+        toPlayerId: h.toPlayerId,
+        claimedRole: h.claimedRole,
+        actualRole: revealActual ? h.actualRole : null,
+        reason: h.reason,
+      };
+    }),
+    lastPassAnimation: state.lastPassAnimation,
     voteTallies,
     winnerSide: state.winnerSide,
     privateRoomPlayerId: state.privateRoomPlayerId,

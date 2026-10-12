@@ -39,6 +39,9 @@ describe('AI roster + decisions', () => {
     actor.hand = ['murderer', 'guest_yellow'];
     const action = chooseAiAction(state, actor.id, 1_000);
     expect(action?.type).toBe('keep_card');
+    if (action?.type === 'keep_card') {
+      expect(action.claimedRole).toBeTruthy();
+    }
   });
 
   it('runBots completes a solo-style match with AI minds', () => {

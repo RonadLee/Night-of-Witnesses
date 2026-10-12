@@ -82,6 +82,28 @@ describe('createMatch + phase 1', () => {
     expect(state.players.every((p) => p.role)).toBe(true);
   });
 
+  it('stores claimed vs actual pass and hides actual from outsiders', () => {
+    let state = createMatch({ players: seats(4), seed: 42 });
+    const actor = state.players[state.currentSeat]!;
+    const actualPass = actor.hand[1]!;
+    state = applyAction(state, actor.id, {
+      type: 'keep_card',
+      keepIndex: 0,
+      claimedRole: 'murderer',
+    }).state;
+    const entry = state.passHistory[0]!;
+    expect(entry.actualRole).toBe(actualPass);
+    expect(entry.claimedRole).toBe('murderer');
+    expect(state.lastPassAnimation?.claimedRole).toBe('murderer');
+
+    const outsider = getView(state, 'bot-2');
+    expect(outsider.public.passHistory[0]?.claimedRole).toBe('murderer');
+    expect(outsider.public.passHistory[0]?.actualRole).toBeNull();
+
+    const passer = getView(state, actor.id);
+    expect(passer.public.passHistory[0]?.actualRole).toBe(actualPass);
+  });
+
   it('rejects keep on wrong turn', () => {
     const state = createMatch({ players: seats(4), seed: 1 });
     const result = applyAction(state, 'bot-1', { type: 'keep_card', keepIndex: 0 });

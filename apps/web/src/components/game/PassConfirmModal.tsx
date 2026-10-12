@@ -1,14 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import type { RoleId } from '@now/game-types';
-import { roleLabel } from '@/lib/roleLabels';
+import { ALL_ROLE_IDS, roleLabel } from '@/lib/roleLabels';
+import { RoleCardArt } from '@/components/game/RoleCardArt';
 
 interface Props {
   card: RoleId;
   passToName: string;
   passToId: string;
   players: Array<{ id: string; name: string }>;
-  onConfirm: (reason: string, passToId: string) => void;
+  onConfirm: (payload: { claimedRole: RoleId; reason: string; passToId: string }) => void;
   onCancel: () => void;
   allowSelectPassTo?: boolean;
 }
@@ -22,6 +24,13 @@ export function PassConfirmModal({
   onCancel,
   allowSelectPassTo = false,
 }: Props) {
+  const [claimedRole, setClaimedRole] = useState<RoleId>(card);
+  const [toId, setToId] = useState(passToId);
+  const [submitting, setSubmitting] = useState(false);
+
+  const toName =
+    toId === 'guest_room' ? 'Guest Room' : (players.find((p) => p.id === toId)?.name ?? passToName);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-4 sm:items-center"
@@ -30,11 +39,17 @@ export function PassConfirmModal({
       aria-labelledby="pass-confirm-title"
     >
       <form
-        className="w-full max-w-md border border-[var(--line)] bg-[var(--bg-mist)] p-5 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-[var(--line)] bg-[var(--bg-mist)] p-5 shadow-xl"
         onSubmit={(e) => {
           e.preventDefault();
+          if (submitting) return;
+          setSubmitting(true);
           const fd = new FormData(e.currentTarget);
-          onConfirm(String(fd.get('reason') ?? '').trim(), String(fd.get('passTo') ?? passToId));
+          onConfirm({
+            claimedRole,
+            reason: String(fd.get('reason') ?? '').trim(),
+            passToId: String(fd.get('passTo') ?? toId),
+          });
         }}
       >
         <h3
@@ -44,16 +59,53 @@ export function PassConfirmModal({
         >
           Confirm pass
         </h3>
-        <p className="mt-4 text-sm text-[var(--fog)]">Selected Card</p>
-        <p className="text-lg font-semibold text-[var(--ember-hot)]">{roleLabel(card)}</p>
+
+        <div className="mt-4">
+          <p className="text-sm text-[var(--fog)]">Actual Card To Pass</p>
+          <div className="mt-2 flex items-start gap-3">
+            <RoleCardArt role={card} size="md" preview />
+            <p className="text-sm text-[var(--fog-dim)]">
+              Only you (and the recipient after the pass) know this is the real card. The table sees
+              your claim instead.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <p className="text-sm text-[var(--fog)]">Claim To Recipient That You Passed</p>
+          <p className="text-xs text-[var(--fog-dim)]">
+            May match the actual card or be a bluff.
+          </p>
+          <div className="mt-2 grid max-h-48 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
+            {ALL_ROLE_IDS.map((r) => (
+              <RoleCardArt
+                key={r}
+                role={r}
+                size="xs"
+                selected={claimedRole === r}
+                preview={false}
+                onClick={() => setClaimedRole(r)}
+              />
+            ))}
+          </div>
+          <p className="mt-2 text-sm">
+            Claiming: <strong>{roleLabel(claimedRole)}</strong>
+            {claimedRole !== card ? (
+              <span className="ml-2 text-[var(--ember-hot)]">(bluff)</span>
+            ) : (
+              <span className="ml-2 text-[var(--fog-dim)]">(truth)</span>
+            )}
+          </p>
+        </div>
 
         <label className="mt-4 flex flex-col gap-1 text-sm text-[var(--fog)]">
-          Pass To
+          Recipient
           <select
             name="passTo"
             className="field"
-            defaultValue={passToId}
+            value={toId}
             disabled={!allowSelectPassTo}
+            onChange={(e) => setToId(e.target.value)}
           >
             {players.map((p) => (
               <option key={p.id} value={p.id}>
@@ -62,7 +114,7 @@ export function PassConfirmModal({
             ))}
           </select>
           <span className="text-xs text-[var(--fog-dim)]">
-            Pass &quot;{roleLabel(card)}&quot; card to {passToName}.
+            Pass chain target: {toName}. Engine still follows seat order; claim is what they hear.
           </span>
         </label>
 
@@ -73,16 +125,17 @@ export function PassConfirmModal({
             rows={2}
             maxLength={120}
             className="field"
-            placeholder="Why this card?"
+            placeholder="Why this card / claim?"
           />
         </label>
 
         <div className="mt-5 flex gap-2">
           <button
             type="submit"
-            className="flex-1 bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]"
+            disabled={submitting}
+            className="flex-1 bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a] disabled:opacity-60"
           >
-            Confirm
+            Confirm Pass
           </button>
           <button
             type="button"

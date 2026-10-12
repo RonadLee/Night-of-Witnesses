@@ -81,8 +81,25 @@ export interface Sighting {
   text?: string;
 }
 
+/** One public/private pass record (actual role may be hidden until result). */
+export interface PassRecord {
+  fromPlayerId: string;
+  toPlayerId: string | 'guest_room';
+  /** True identity of the card that moved — null in public views until result. */
+  actualRole: RoleId | null;
+  /** What the passer announced to the table (may be a bluff). */
+  claimedRole: RoleId;
+  reason?: string;
+}
+
 export type Action =
-  | { type: 'keep_card'; keepIndex: 0 | 1; passReason?: string }
+  | {
+      type: 'keep_card';
+      keepIndex: 0 | 1;
+      /** Role claimed to the recipient / table (defaults to actual passed card if omitted). */
+      claimedRole?: RoleId;
+      passReason?: string;
+    }
   | { type: 'announce_sighting'; claimedRole: RoleId; claimedThroughPlayerId: string; text?: string }
   | { type: 'use_butler'; targetA: string; targetB: string }
   | { type: 'use_detective'; targetPlayerId: string }
@@ -111,6 +128,9 @@ export interface ActivityEvent {
   kind: ActivityKind;
   actorPlayerId?: string;
   message: string;
+  /** Public claim shown in the feed (pass events). */
+  claimedRole?: RoleId;
+  toPlayerId?: string | 'guest_room';
 }
 
 export interface PublicPlayerView {
@@ -158,12 +178,14 @@ export interface MatchPublicView {
   abilityReveals: AbilityReveal[];
   chat: Array<{ fromPlayerId: string; text: string; at: number }>;
   activity: ActivityEvent[];
-  passHistory: Array<{
+  passHistory: PassRecord[];
+  /** Latest pass for flying-card animation (claimed image only). */
+  lastPassAnimation: {
     fromPlayerId: string;
     toPlayerId: string | 'guest_room';
-    role: RoleId;
-    reason?: string;
-  }>;
+    claimedRole: RoleId;
+    at: number;
+  } | null;
   voteTallies: Record<string, number> | null;
   winnerSide: WinnerSide;
   /** Player sent to 爆鎖室 / Private Room */

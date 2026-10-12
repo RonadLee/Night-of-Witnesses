@@ -260,6 +260,7 @@ function handleKeepCard(
   playerId: string,
   keepIndex: 0 | 1,
   reason: string | undefined,
+  claimedRoleInput: RoleId | undefined,
   now: number,
 ): EngineResult {
   if (state.phase !== 'role_assignment') return fail(state, 'Not in role assignment');
@@ -269,6 +270,9 @@ function handleKeepCard(
   const keep = player.hand[keepIndex];
   const pass = player.hand[1 - keepIndex];
   if (!keep || !pass) return fail(state, 'Invalid keep index');
+
+  // Backward compatible: omitted claim = tell the truth
+  const claimedRole = claimedRoleInput ?? pass;
 
   player.role = keep;
   player.hand = [];
@@ -284,42 +288,58 @@ function handleKeepCard(
     state.passHistory.push({
       fromPlayerId: playerId,
       toPlayerId: 'guest_room',
-      role: pass,
+      actualRole: pass,
+      claimedRole,
       reason,
     });
+    state.lastPassAnimation = {
+      fromPlayerId: playerId,
+      toPlayerId: 'guest_room',
+      claimedRole,
+      at: now,
+    };
     pushActivity(
       state,
       'pass',
-      `${player.name} completed card selection. Leftover (${roleLabel(pass)}) went to Guest Room.`,
+      `${player.name} claimed to leave ${roleLabel(claimedRole)} in the Guest Room.`,
       playerId,
       now,
+      { claimedRole, toPlayerId: 'guest_room' },
     );
     beginInformation(state, now);
     return ok(state);
   }
 
   const next = nextSeatIndex(state, state.currentSeat);
+  const recipient = state.players[next]!;
   state.passHistory.push({
     fromPlayerId: playerId,
-    toPlayerId: state.players[next]!.id,
-    role: pass,
+    toPlayerId: recipient.id,
+    actualRole: pass,
+    claimedRole,
     reason,
   });
+  state.lastPassAnimation = {
+    fromPlayerId: playerId,
+    toPlayerId: recipient.id,
+    claimedRole,
+    at: now,
+  };
   pushActivity(
     state,
     'pass',
-    `${player.name} passed ${roleLabel(pass)} card to ${state.players[next]!.name}`,
+    `${player.name} claimed to pass ${roleLabel(claimedRole)} to ${recipient.name}.`,
     playerId,
     now,
+    { claimedRole, toPlayerId: recipient.id },
   );
 
   state.currentSeat = next;
-  const nextPlayer = state.players[next]!;
-  nextPlayer.hand = [pass];
-  nextPlayer.status = 'Selecting card';
-  nextPlayer.currentAction = 'Choosing which card to keep';
+  recipient.hand = [pass];
+  recipient.status = 'Selecting card';
+  recipient.currentAction = 'Choosing which card to keep';
   dealDrawToCurrent(state);
-  state.nextBotActAt = now + (nextPlayer.isBot ? 700 : 0);
+  state.nextBotActAt = now + (recipient.isBot ? 700 : 0);
   return ok(state);
 }
 
@@ -534,7 +554,14 @@ export function applyAction(
 
   switch (action.type) {
     case 'keep_card':
-      return handleKeepCard(state, playerId, action.keepIndex, action.passReason, now);
+      return handleKeepCard(
+        state,
+        playerId,
+        action.keepIndex,
+        action.passReason,
+        action.claimedRole,
+        now,
+      );
 
     case 'announce_sighting': {
       const result = handleSighting(

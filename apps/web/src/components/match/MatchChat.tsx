@@ -1,6 +1,7 @@
 'use client';
 
 import type { ActivityEvent, PlayerMatchView } from '@now/game-types';
+import { RoleCardArt } from '@/components/game/RoleCardArt';
 
 interface MatchChatProps {
   view: PlayerMatchView;
@@ -11,18 +12,25 @@ interface MatchChatProps {
 
 export function MatchChat({ view, selfId, canChat, onSend }: MatchChatProps) {
   const pub = view.public;
-  const events: Array<{ id: string; at: number; line: string; kind: string }> = [
+  const events: Array<{
+    id: string;
+    at: number;
+    line: string;
+    kind: string;
+    claimedRole?: ActivityEvent['claimedRole'];
+  }> = [
     ...pub.activity.map((e: ActivityEvent) => ({
       id: e.id,
       at: e.at,
       line: e.message,
       kind: e.kind,
+      claimedRole: e.claimedRole,
     })),
     ...pub.chat.map((c, i) => ({
       id: `chat-${i}-${c.at}`,
       at: c.at,
       line: `${nameOf(pub, c.fromPlayerId)}: ${c.text}`,
-      kind: 'chat',
+      kind: 'chat' as const,
     })),
   ]
     .sort((a, b) => a.at - b.at)
@@ -35,21 +43,22 @@ export function MatchChat({ view, selfId, canChat, onSend }: MatchChatProps) {
           Table chat & activity
         </p>
       </header>
-      <div className="match-chat-scroll max-h-48 space-y-1.5 overflow-y-auto px-3 py-2 text-sm">
+      <div className="match-chat-scroll max-h-56 space-y-2 overflow-y-auto px-3 py-2 text-sm">
         {events.length === 0 ? (
           <p className="text-[var(--fog-dim)]">Waiting for the first move…</p>
         ) : (
           events.map((e) => (
-            <p
+            <div
               key={e.id}
               className={
                 e.kind === 'chat'
                   ? 'text-[var(--paper)]'
-                  : 'border-l-2 border-[var(--ember)] pl-2 text-[var(--fog)]'
+                  : 'flex items-start gap-2 border-l-2 border-[var(--ember)] pl-2 text-[var(--fog)]'
               }
             >
-              {e.line}
-            </p>
+              {e.claimedRole && <RoleCardArt role={e.claimedRole} size="xs" showLabel={false} />}
+              <p className="min-w-0 flex-1">{e.line}</p>
+            </div>
           ))
         )}
       </div>

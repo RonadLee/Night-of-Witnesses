@@ -61,6 +61,7 @@ export function createMatch(options: CreateMatchOptions): MatchState {
     chat: [],
     activity: [],
     passHistory: [],
+    lastPassAnimation: null,
     winnerSide: null,
     lockedPlayerId: null,
     privateRoomPlayerId: null,

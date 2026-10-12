@@ -88,7 +88,35 @@ export function autosave(blob: SoloSaveBlob): void {
 export function loadSave(): SoloSaveBlob | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? (JSON.parse(raw) as SoloSaveBlob) : null;
+    if (!raw) return null;
+    const blob = JSON.parse(raw) as SoloSaveBlob;
+    // Backward-compatible migration for claim/bluff pass fields
+    if (blob.state?.passHistory) {
+      blob.state.passHistory = blob.state.passHistory.map((h) => {
+        const legacy = h as {
+          fromPlayerId: string;
+          toPlayerId: string | 'guest_room';
+          actualRole?: string | null;
+          claimedRole?: string;
+          role?: string;
+          reason?: string;
+        };
+        return {
+          fromPlayerId: legacy.fromPlayerId,
+          toPlayerId: legacy.toPlayerId,
+          actualRole: (legacy.actualRole ?? legacy.role ?? null) as typeof h.actualRole,
+          claimedRole: (legacy.claimedRole ??
+            legacy.role ??
+            legacy.actualRole ??
+            'guest_yellow') as typeof h.claimedRole,
+          reason: legacy.reason,
+        };
+      });
+    }
+    if (blob.state && blob.state.lastPassAnimation === undefined) {
+      blob.state.lastPassAnimation = null;
+    }
+    return blob;
   } catch {
     return null;
   }

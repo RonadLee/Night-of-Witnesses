@@ -2,26 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import type { Action, PlayerMatchView, RoleId } from '@now/game-types';
-import { roleLabel } from '@/lib/roleLabels';
+import { ALL_ROLE_IDS, roleLabel } from '@/lib/roleLabels';
 import { CircularTable } from '@/components/match/CircularTable';
 import { MatchChat } from '@/components/match/MatchChat';
 import { MatchTimer } from '@/components/match/MatchTimer';
 import { PassConfirmModal } from '@/components/game/PassConfirmModal';
+import { PassFlyAnimation } from '@/components/game/PassFlyAnimation';
 import { ResultPanel } from '@/components/game/ResultPanel';
-import { RoleCard } from '@/components/game/RoleCard';
-
-const ALL_ROLES: RoleId[] = [
-  'murderer',
-  'accomplice',
-  'bomber',
-  'butler',
-  'detective',
-  'merchant',
-  'lawyer',
-  'guest_yellow',
-  'guest_blue',
-  'guest_red',
-];
+import { RoleCardArt } from '@/components/game/RoleCardArt';
 
 interface GameTableProps {
   view: PlayerMatchView;
@@ -74,14 +62,15 @@ export function GameTable({
     setPassToId(toId ?? chainTarget?.id ?? others[0]?.id ?? 'guest_room');
   }
 
-  function confirmPass(reason: string, toId: string) {
+  function confirmPass(payload: { claimedRole: RoleId; reason: string; passToId: string }) {
     if (passCardIndex === null) return;
     // Passing card at passCardIndex means we keep the other
     const keepIndex = (1 - passCardIndex) as 0 | 1;
     onAction({
       type: 'keep_card',
       keepIndex,
-      passReason: reason || `Pass to ${toId}`,
+      claimedRole: payload.claimedRole,
+      passReason: payload.reason || `Pass to ${payload.passToId}`,
     });
     setPassCardIndex(null);
     setPassToId(null);
@@ -133,54 +122,68 @@ export function GameTable({
         </p>
       )}
 
-      <CircularTable
-        players={pub.players}
-        selfId={selfId}
-        currentPlayerId={pub.currentPlayerId}
-        dropEnabled={dropEnabled}
-        voteEnabled={voteEnabled}
-        dragOverSeatId={dragOverSeatId}
-        onSeatDragOver={setDragOverSeatId}
-        onSeatDrop={(id) => {
-          if (selectedCard !== null) openPassConfirm(selectedCard, id);
-        }}
-        onSeatClick={onSeatClick}
-      />
+      <div className="relative">
+        <CircularTable
+          players={pub.players}
+          selfId={selfId}
+          currentPlayerId={pub.currentPlayerId}
+          dropEnabled={dropEnabled}
+          voteEnabled={voteEnabled}
+          dragOverSeatId={dragOverSeatId}
+          onSeatDragOver={setDragOverSeatId}
+          onSeatDrop={(id) => {
+            if (selectedCard !== null) openPassConfirm(selectedCard, id);
+          }}
+          onSeatClick={onSeatClick}
+        />
+        <PassFlyAnimation
+          animation={pub.lastPassAnimation}
+          fromName={
+            pub.lastPassAnimation
+              ? nameOf(pub, pub.lastPassAnimation.fromPlayerId)
+              : ''
+          }
+          toName={
+            pub.lastPassAnimation
+              ? pub.lastPassAnimation.toPlayerId === 'guest_room'
+                ? 'Guest Room'
+                : nameOf(pub, pub.lastPassAnimation.toPlayerId)
+              : ''
+          }
+        />
+      </div>
 
       {dropEnabled && priv.hand.length === 2 && (
         <section className="match-hand" aria-label="Your hand">
           <p className="mb-2 text-sm text-[var(--fog)]">
             Drag a card onto a seat to pass it, or tap a card then tap a seat. You keep the other
-            card.
+            card — then choose what to claim.
           </p>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-wrap justify-center gap-4">
             {([0, 1] as const).map((idx) => (
-              <button
-                key={idx}
-                type="button"
-                draggable
-                onDragStart={(e) => {
-                  setSelectedCard(idx);
-                  e.dataTransfer.setData('text/pass-index', String(idx));
-                  e.dataTransfer.effectAllowed = 'move';
-                }}
-                onDragEnd={() => setDragOverSeatId(null)}
-                onClick={() => setSelectedCard(idx)}
-                className={`card-tile flex-1 px-4 py-5 font-semibold transition ${
-                  selectedCard === idx
-                    ? 'bg-[var(--ember-hot)] text-[#1a0f0a] ring-2 ring-[var(--paper)]'
-                    : 'bg-[var(--ember)] text-[#1a0f0a] hover:bg-[var(--ember-hot)]'
-                }`}
-              >
-                {roleLabel(priv.hand[idx]!)}
-                <span className="mt-1 block text-xs font-normal opacity-80">Pass this card</span>
-              </button>
+              <div key={idx} className="card-tile flex flex-col items-center gap-2">
+                <RoleCardArt
+                  role={priv.hand[idx]!}
+                  size="lg"
+                  selected={selectedCard === idx}
+                  preview={false}
+                  passLabel
+                  draggable
+                  onDragStart={(e) => {
+                    setSelectedCard(idx);
+                    e.dataTransfer.setData('text/pass-index', String(idx));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragEnd={() => setDragOverSeatId(null)}
+                  onClick={() => setSelectedCard(idx)}
+                />
+              </div>
             ))}
           </div>
           {selectedCard !== null && chainTarget && (
             <button
               type="button"
-              className="mt-2 border border-[var(--fog)] px-4 py-3 text-sm"
+              className="mt-3 border border-[var(--fog)] px-4 py-3 text-sm"
               onClick={() => openPassConfirm(selectedCard, chainTarget.id)}
             >
               Pass to {chainTarget.name} (chain)
@@ -199,10 +202,11 @@ export function GameTable({
           {priv.butlerPeek && priv.butlerPeek.length > 0 && (
             <div className="mt-2 text-sm">
               <p className="text-[var(--fog-dim)]">Butler peek (private):</p>
-              <ul className="mt-1 space-y-1">
+              <ul className="mt-1 flex flex-wrap gap-2">
                 {priv.butlerPeek.map((g) => (
-                  <li key={g.playerId}>
-                    {nameOf(pub, g.playerId)} → {roleLabel(g.role)}
+                  <li key={g.playerId} className="flex items-center gap-2">
+                    <span>{nameOf(pub, g.playerId)}</span>
+                    <RoleCardArt role={g.role} size="xs" />
                   </li>
                 ))}
               </ul>
@@ -212,7 +216,7 @@ export function GameTable({
             <p className="mt-1 text-sm text-[var(--ember-hot)]">{priv.detectiveNote}</p>
           )}
         </div>
-        {priv.role && <RoleCard role={priv.role} compact />}
+        {priv.role && <RoleCardArt role={priv.role} size="md" />}
       </section>
 
       {pub.sightings.length > 0 && (
@@ -249,7 +253,7 @@ export function GameTable({
       <section className="flex flex-col gap-3">
         {legal.has('announce_sighting') && (
           <SightingForm
-            roles={ALL_ROLES}
+            roles={ALL_ROLE_IDS}
             players={others}
             onSubmit={(claimedRole, claimedThroughPlayerId, text) =>
               onAction({
