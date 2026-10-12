@@ -70,6 +70,7 @@ export function mostSuspicious(mind: AiMind, excludeIds: string[] = []): string 
 
 export function roleThreat(role: RoleId | null): number {
   if (role === 'murderer') return 1;
+  if (role === 'bomber') return 0.85;
   if (role === 'accomplice') return 0.7;
   return 0.2;
 }

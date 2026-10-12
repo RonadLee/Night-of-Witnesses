@@ -1,9 +1,11 @@
 import type { Action, RoleId } from '@now/game-types';
 import { reasoningSummary } from './ai/decide';
-import { dealDrawToCurrent, nextSeatIndex } from './createMatch';
+import { assignTicketsForRole, dealDrawToCurrent, nextSeatIndex } from './createMatch';
 import { createRng, pickRandom } from './rng';
-import { teamOf } from './roles';
+import { computeTickets, isGuestRole, resolvePrivateRoomOutcome, teamOf } from './roles';
 import { cloneState, pushActivity, type EngineResult, type MatchState } from './state';
+
+const MAX_ABILITY_CHAIN = 6;
 
 function fail(state: MatchState, error: string): EngineResult {
   return { ok: false, error, state };
@@ -27,9 +29,8 @@ function roleLabel(role: RoleId): string {
 
 function beginInformation(state: MatchState, now: number): void {
   state.phase = 'information';
-  state.currentSeat = state.variant.passDirection === 'counterclockwise'
-    ? state.players.length - 1
-    : 0;
+  state.currentSeat =
+    state.variant.passDirection === 'counterclockwise' ? state.players.length - 1 : 0;
   state.phaseEndsAt = now + state.variant.descriptionSeconds * 1000;
   for (const p of state.players) {
     p.status = 'Preparing description';
@@ -75,20 +76,27 @@ function beginVoting(state: MatchState, now: number): void {
     p.currentAction = 'Selecting ballot';
   }
   state.nextBotActAt = now + 500;
-  pushActivity(state, 'phase', 'Secret voting opened.', undefined, now);
+  pushActivity(state, 'phase', 'Secret voting for Private Room opened.', undefined, now);
 }
 
 function applyScores(state: MatchState): void {
-  if (state.winnerSide === 'witnesses') {
+  if (state.winnerSide === 'guest_side') {
     for (const p of state.players) {
-      if (p.role && teamOf(p.role) === 'witness') {
-        state.scores[p.id] = (state.scores[p.id] ?? 0) + 2;
+      if (!p.role) continue;
+      if (teamOf(p.role) === 'guest_side' || teamOf(p.role) === 'neutral') {
+        state.scores[p.id] = (state.scores[p.id] ?? 0) + 2 + (p.tickets ?? 0);
       }
     }
-  } else if (state.winnerSide === 'murderers') {
+  } else if (state.winnerSide === 'murderer_side') {
     for (const p of state.players) {
-      if (p.role && teamOf(p.role) === 'murderer') {
+      if (p.role && teamOf(p.role) === 'murderer_side') {
         state.scores[p.id] = (state.scores[p.id] ?? 0) + 3;
+      }
+    }
+  } else if (state.winnerSide === 'bomber') {
+    for (const p of state.players) {
+      if (p.role === 'bomber') {
+        state.scores[p.id] = (state.scores[p.id] ?? 0) + 5;
       }
     }
   }
@@ -101,31 +109,119 @@ function finalizeResult(state: MatchState, now: number): void {
     .filter((p) => p.isBot)
     .map((p) => ({ playerId: p.id, summary: reasoningSummary(state, p.id) }));
   for (const p of state.players) {
-    p.status = p.isLocked ? 'Locked' : 'Finished';
+    p.status = p.isLocked ? 'In Private Room' : 'Finished';
     p.currentAction = null;
   }
+  const msg =
+    state.winnerSide === 'guest_side'
+      ? 'Guest side wins — Murderer entered the Private Room.'
+      : state.winnerSide === 'murderer_side'
+        ? 'Murderer side wins — Murderer avoided the Private Room.'
+        : state.winnerSide === 'bomber'
+          ? 'Bomber wins alone — Bomber entered the Private Room.'
+          : 'Round ended with no winner.';
+  pushActivity(state, 'phase', msg, undefined, now);
+}
+
+/** Send a player into 爆鎖室 and resolve win conditions + tickets. */
+function enterPrivateRoom(state: MatchState, playerId: string, now: number, via: string): void {
+  const target = playerById(state, playerId);
+  if (!target) {
+    state.winnerSide = 'none';
+    finalizeResult(state, now);
+    return;
+  }
+  target.isLocked = true;
+  state.lockedPlayerId = playerId;
+  state.privateRoomPlayerId = playerId;
   pushActivity(
     state,
-    'phase',
-    state.winnerSide === 'witnesses' ? 'Witnesses win the round.' : 'Murderer side wins the round.',
+    'system',
+    `${target.name} entered the Private Room (爆鎖室) via ${via}.`,
     undefined,
     now,
   );
+
+  // Butler whitening applies silently when Murderer enters
+  if (target.role === 'murderer' && state.butlerWhitenedPlayerIds.length > 0) {
+    pushActivity(
+      state,
+      'system',
+      'Butler effect: revealed guests lose color identity at scoring (silent).',
+      undefined,
+      now,
+    );
+  }
+
+  const outcome = resolvePrivateRoomOutcome(state);
+  state.winnerSide = outcome.winnerSide;
+  state.winningRoleIds = outcome.winningRoleIds;
+  state.ticketBreakdown = outcome.ticketBreakdown;
+  applyScores(state);
+  finalizeResult(state, now);
+}
+
+/**
+ * Execute a player's special ability as part of Detective chain.
+ * Returns true if the match already ended (e.g. nested Private Room — should not happen).
+ */
+function executeChainedAbility(
+  state: MatchState,
+  playerId: string,
+  now: number,
+  chain: Set<string>,
+): void {
+  if (chain.has(playerId) || state.abilityChainDepth >= MAX_ABILITY_CHAIN) return;
+  chain.add(playerId);
+  state.abilityChainDepth += 1;
+  const actor = playerById(state, playerId);
+  if (!actor?.role) return;
+
+  if (actor.role === 'butler') {
+    const guests = state.players.filter((p) => p.id !== playerId && isGuestRole(p.role));
+    const picks = guests.slice(0, 2);
+    if (picks.length >= 1) {
+      state.butlerPeeks[playerId] = picks.map((g) => ({ playerId: g.id, role: g.role! }));
+      state.butlerWhitenedPlayerIds = [
+        ...new Set([...state.butlerWhitenedPlayerIds, ...picks.map((g) => g.id)]),
+      ];
+      state.abilityReveals.push({
+        kind: 'butler',
+        actorPlayerId: playerId,
+        summary: `${actor.name} (chained) secretly viewed guests.`,
+        privateTo: playerId,
+      });
+    }
+  } else if (actor.role === 'lawyer') {
+    const others = state.players.filter((p) => p.id !== playerId);
+    const pick = others[0];
+    if (pick && !state.lawyerTargetId) {
+      state.lawyerTargetId = pick.id;
+      state.abilityReveals.push({
+        kind: 'lawyer',
+        actorPlayerId: playerId,
+        targetPlayerId: pick.id,
+        summary: `${actor.name} (chained) marked a ticket invalid.`,
+      });
+    }
+  } else if (actor.role === 'detective' && state.abilityChainDepth < MAX_ABILITY_CHAIN) {
+    // Nested detective: pick someone else not in chain
+    const cand = state.players.find(
+      (p) => p.id !== playerId && !chain.has(p.id) && !p.isLocked,
+    );
+    if (cand) {
+      // Only execute ability of cand, do not nest another private room send mid-chain
+      executeChainedAbility(state, cand.id, now, chain);
+    }
+  }
+  // merchant / guests / murderer / accomplice / bomber: no further active ability
 }
 
 function resolveVotes(state: MatchState, now: number): void {
   const tallies = new Map<string, number>();
-  const silenced = state.players.find((p) => p.isSilenced);
   for (const [voterId, targetId] of Object.entries(state.votes)) {
     const voter = playerById(state, voterId);
-    let weight = 1;
-    if (
-      voter?.role === 'priest' &&
-      silenced?.role === 'murderer' &&
-      targetId === silenced.id
-    ) {
-      weight = 2;
-    }
+    const weight = Math.max(1, voter?.tickets ?? 1);
     tallies.set(targetId, (tallies.get(targetId) ?? 0) + weight);
   }
 
@@ -134,7 +230,11 @@ function resolveVotes(state: MatchState, now: number): void {
   const tied = [...tallies.entries()].filter(([, v]) => v === best).map(([id]) => id);
 
   if (tied.length === 0) {
-    state.winnerSide = 'murderers';
+    // No votes — Murderer avoided by default
+    state.winnerSide = 'murderer_side';
+    state.winningRoleIds = ['murderer'];
+    if (state.players.some((p) => p.role === 'accomplice')) state.winningRoleIds.push('accomplice');
+    state.ticketBreakdown = computeTickets(state, false);
     applyScores(state);
     finalizeResult(state, now);
     return;
@@ -148,26 +248,11 @@ function resolveVotes(state: MatchState, now: number): void {
       return;
     }
     const rng = createRng(state.seed + state.round * 997 + state.revoteCount);
-    lockPlayer(state, pickRandom(tied, rng), now);
+    enterPrivateRoom(state, pickRandom(tied, rng), now, 'tied vote');
     return;
   }
 
-  lockPlayer(state, tied[0]!, now);
-}
-
-function lockPlayer(state: MatchState, playerId: string, now: number): void {
-  const target = playerById(state, playerId);
-  if (!target) {
-    state.winnerSide = 'murderers';
-    applyScores(state);
-    finalizeResult(state, now);
-    return;
-  }
-  target.isLocked = true;
-  state.lockedPlayerId = playerId;
-  state.winnerSide = target.role === 'murderer' ? 'witnesses' : 'murderers';
-  applyScores(state);
-  finalizeResult(state, now);
+  enterPrivateRoom(state, tied[0]!, now, 'majority vote');
 }
 
 function handleKeepCard(
@@ -188,6 +273,8 @@ function handleKeepCard(
   player.role = keep;
   player.hand = [];
   player.passedCard = pass;
+  player.tickets = 1; // updated below
+  assignTicketsForRole(state, playerId);
   player.status = 'Ready';
   player.currentAction = null;
 
@@ -307,6 +394,132 @@ function finishAbility(state: MatchState, playerId: string, now: number): Engine
   return ok(state);
 }
 
+function handleButler(
+  state: MatchState,
+  playerId: string,
+  targetA: string,
+  targetB: string,
+  now: number,
+): EngineResult {
+  if (state.phase !== 'information') return fail(state, 'Not in information phase');
+  const err = ensureAnnounced(state, playerId);
+  if (err) return err;
+  const actor = playerById(state, playerId)!;
+  if (actor.role !== 'butler') return fail(state, 'Only Butler can use this');
+  if (targetA === targetB) return fail(state, 'Choose two different guests');
+  const a = playerById(state, targetA);
+  const b = playerById(state, targetB);
+  if (!a?.role || !b?.role) return fail(state, 'Invalid targets');
+  if (!isGuestRole(a.role) || !isGuestRole(b.role)) {
+    return fail(state, 'Butler may only reveal Guest roles');
+  }
+
+  state.butlerPeeks[playerId] = [
+    { playerId: a.id, role: a.role },
+    { playerId: b.id, role: b.role },
+  ];
+  // Silent whitening flag — targets are NOT notified
+  state.butlerWhitenedPlayerIds = [
+    ...new Set([...state.butlerWhitenedPlayerIds, a.id, b.id]),
+  ];
+  state.abilityReveals.push({
+    kind: 'butler',
+    actorPlayerId: playerId,
+    summary: `${actor.name} secretly viewed two guests.`,
+    privateTo: playerId,
+  });
+  pushActivity(state, 'ability', `${actor.name} used Butler (private).`, playerId, now);
+  return finishAbility(state, playerId, now);
+}
+
+function handleLawyer(
+  state: MatchState,
+  playerId: string,
+  targetPlayerId: string,
+  now: number,
+): EngineResult {
+  if (state.phase !== 'information') return fail(state, 'Not in information phase');
+  const err = ensureAnnounced(state, playerId);
+  if (err) return err;
+  const actor = playerById(state, playerId)!;
+  if (actor.role !== 'lawyer') return fail(state, 'Only Lawyer can use this');
+  const target = playerById(state, targetPlayerId);
+  if (!target || target.id === playerId) return fail(state, 'Invalid lawyer target');
+  state.lawyerTargetId = target.id;
+  state.abilityReveals.push({
+    kind: 'lawyer',
+    actorPlayerId: playerId,
+    targetPlayerId: target.id,
+    summary: `${actor.name} marked a player's ticket for invalidation.`,
+    privateTo: playerId,
+  });
+  pushActivity(state, 'ability', `${actor.name} used Lawyer (private).`, playerId, now);
+  return finishAbility(state, playerId, now);
+}
+
+function handleDetective(
+  state: MatchState,
+  playerId: string,
+  targetPlayerId: string,
+  now: number,
+): EngineResult {
+  // Allowed in information (after announce) or discussion (reveal + sudden resolution)
+  if (state.phase !== 'information' && state.phase !== 'discussion') {
+    return fail(state, 'Detective ability not available now');
+  }
+  const actor = playerById(state, playerId);
+  if (!actor || actor.role !== 'detective') return fail(state, 'Only Detective can use this');
+  if (actor.abilityUsed) return fail(state, 'Ability already used');
+
+  if (state.phase === 'information') {
+    const err = ensureAnnounced(state, playerId);
+    if (err) return err;
+  }
+
+  const target = playerById(state, targetPlayerId);
+  if (!target || target.id === playerId) return fail(state, 'Invalid detective target');
+
+  actor.abilityUsed = true;
+  actor.roleRevealed = true;
+  state.abilityReveals.push({
+    kind: 'detective',
+    actorPlayerId: playerId,
+    targetPlayerId: target.id,
+    summary: `${actor.name} revealed Detective and sent ${target.name} to the Private Room.`,
+  });
+  pushActivity(
+    state,
+    'ability',
+    `${actor.name} (Detective) sent ${target.name} into the Private Room.`,
+    playerId,
+    now,
+  );
+
+  if (target.role === 'murderer') {
+    const guests = state.players.filter((p) => isGuestRole(p.role));
+    const rng = createRng(state.seed + now);
+    const revealed = guests.length ? pickRandom(guests, rng) : null;
+    if (revealed?.role) {
+      revealed.roleRevealed = true;
+      state.detectiveNote = `Murderer confirmed. Guest revealed: ${revealed.name} is ${roleLabel(revealed.role)}.`;
+      state.abilityReveals.push({
+        kind: 'system',
+        actorPlayerId: playerId,
+        targetPlayerId: revealed.id,
+        summary: state.detectiveNote,
+      });
+      pushActivity(state, 'ability', state.detectiveNote, playerId, now);
+    }
+  } else {
+    state.abilityChainDepth = 0;
+    executeChainedAbility(state, target.id, now, new Set([playerId]));
+    state.detectiveNote = `Target was not Murderer — executed ${roleLabel(target.role ?? 'guest_yellow')} ability.`;
+  }
+
+  enterPrivateRoom(state, target.id, now, 'Detective');
+  return ok(state);
+}
+
 export function applyAction(
   input: MatchState,
   playerId: string,
@@ -340,93 +553,24 @@ export function applyAction(
       if (state.phase !== 'information') return fail(state, 'Not in information phase');
       const err = ensureAnnounced(state, playerId);
       if (err) return err;
-      pushActivity(state, 'ability', `${playerById(state, playerId)?.name} skipped an ability.`, playerId, now);
+      pushActivity(
+        state,
+        'ability',
+        `${playerById(state, playerId)?.name} skipped an ability.`,
+        playerId,
+        now,
+      );
       return finishAbility(state, playerId, now);
     }
 
-    case 'use_doctor': {
-      if (state.phase !== 'information') return fail(state, 'Not in information phase');
-      const err = ensureAnnounced(state, playerId);
-      if (err) return err;
-      const actor = playerById(state, playerId)!;
-      if (actor.role !== 'doctor') return fail(state, 'Only Doctor can use this');
-      const target = playerById(state, action.targetPlayerId);
-      if (!target?.role) return fail(state, 'Invalid target');
-      state.doctorResults[playerId] = {
-        targetPlayerId: target.id,
-        isMurderer: target.role === 'murderer',
-      };
-      state.abilityReveals.push({
-        kind: 'doctor',
-        actorPlayerId: playerId,
-        targetPlayerId: target.id,
-        summary: `${actor.name} examined a player.`,
-        privateTo: playerId,
-      });
-      pushActivity(state, 'ability', `${actor.name} used Doctor.`, playerId, now);
-      return finishAbility(state, playerId, now);
-    }
+    case 'use_butler':
+      return handleButler(state, playerId, action.targetA, action.targetB, now);
 
-    case 'use_detective': {
-      if (state.phase !== 'information') return fail(state, 'Not in information phase');
-      const err = ensureAnnounced(state, playerId);
-      if (err) return err;
-      const actor = playerById(state, playerId)!;
-      if (actor.role !== 'detective') return fail(state, 'Only Detective can use this');
-      const target = playerById(state, action.targetPlayerId);
-      if (!target?.passedCard) return fail(state, 'No passed card to reveal');
-      state.detectiveReveals[playerId] = {
-        targetPlayerId: target.id,
-        passedCard: target.passedCard,
-      };
-      state.abilityReveals.push({
-        kind: 'detective',
-        actorPlayerId: playerId,
-        targetPlayerId: target.id,
-        summary: `${actor.name} forced a passed-card reveal (private).`,
-        privateTo: playerId,
-      });
-      pushActivity(state, 'ability', `${actor.name} used Detective.`, playerId, now);
-      return finishAbility(state, playerId, now);
-    }
+    case 'use_lawyer':
+      return handleLawyer(state, playerId, action.targetPlayerId, now);
 
-    case 'use_spy': {
-      if (state.phase !== 'information') return fail(state, 'Not in information phase');
-      const err = ensureAnnounced(state, playerId);
-      if (err) return err;
-      const actor = playerById(state, playerId)!;
-      if (actor.role !== 'spy') return fail(state, 'Only Spy can use this');
-      if (!state.guestRoomCard) return fail(state, 'Guest Room empty');
-      state.spyPeeks[playerId] = state.guestRoomCard;
-      state.guestRoomPeeked = true;
-      state.abilityReveals.push({
-        kind: 'spy',
-        actorPlayerId: playerId,
-        summary: `${actor.name} peeked at the Guest Room.`,
-        privateTo: playerId,
-      });
-      pushActivity(state, 'ability', `${actor.name} peeked Guest Room.`, playerId, now);
-      return finishAbility(state, playerId, now);
-    }
-
-    case 'use_priest': {
-      if (state.phase !== 'information') return fail(state, 'Not in information phase');
-      const err = ensureAnnounced(state, playerId);
-      if (err) return err;
-      const actor = playerById(state, playerId)!;
-      if (actor.role !== 'priest') return fail(state, 'Only Priest can use this');
-      const target = playerById(state, action.targetPlayerId);
-      if (!target || target.id === playerId) return fail(state, 'Invalid silence target');
-      target.isSilenced = true;
-      state.abilityReveals.push({
-        kind: 'priest',
-        actorPlayerId: playerId,
-        targetPlayerId: target.id,
-        summary: `${actor.name} silenced ${target.name}.`,
-      });
-      pushActivity(state, 'ability', `${actor.name} silenced ${target.name}.`, playerId, now);
-      return finishAbility(state, playerId, now);
-    }
+    case 'use_detective':
+      return handleDetective(state, playerId, action.targetPlayerId, now);
 
     case 'chat': {
       if (state.phase !== 'discussion' && state.phase !== 'information') {
@@ -489,7 +633,6 @@ export function applyAction(
   }
 }
 
-/** Force unresolved voters when voting timer expires. */
 export function forceExpireVoting(state: MatchState, now: number): MatchState {
   const next = cloneState(state);
   if (next.phase !== 'voting') return next;
@@ -505,7 +648,6 @@ export function forceExpireVoting(state: MatchState, now: number): MatchState {
   return next;
 }
 
-/** Skip remaining description turns when timer expires. */
 export function forceExpireInformation(state: MatchState, now: number): MatchState {
   let current = cloneState(state);
   if (current.phase !== 'information') return current;
@@ -522,7 +664,7 @@ export function forceExpireInformation(state: MatchState, now: number): MatchSta
         cur.id,
         {
           type: 'announce_sighting',
-          claimedRole: 'doctor',
+          claimedRole: 'guest_yellow',
           claimedThroughPlayerId: through.id,
           text: `${cur.name} rushed a vague sighting.`,
         },

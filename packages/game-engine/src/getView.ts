@@ -1,4 +1,5 @@
 import type { Action, MatchPrivateView, MatchPublicView, PlayerMatchView } from '@now/game-types';
+import { baseTicketsForRole } from './roles';
 import type { MatchState } from './state';
 
 function legalActions(state: MatchState, playerId: string): Action['type'][] {
@@ -17,10 +18,9 @@ function legalActions(state: MatchState, playerId: string): Action['type'][] {
     if (!me.hasAnnounced) return ['announce_sighting'];
     if (!me.abilityUsed) {
       const abilities: Action['type'][] = ['skip_ability'];
-      if (me.role === 'doctor') abilities.push('use_doctor');
+      if (me.role === 'butler') abilities.push('use_butler');
       if (me.role === 'detective') abilities.push('use_detective');
-      if (me.role === 'spy') abilities.push('use_spy');
-      if (me.role === 'priest') abilities.push('use_priest');
+      if (me.role === 'lawyer') abilities.push('use_lawyer');
       return abilities;
     }
     return [];
@@ -30,6 +30,8 @@ function legalActions(state: MatchState, playerId: string): Action['type'][] {
     const list: Action['type'][] = ['end_discussion'];
     if (state.variant.speech === 'gestures-only') list.push('gesture');
     else if (!me.isSilenced) list.push('chat');
+    // Detective may reveal mid-discussion for sudden Private Room
+    if (me.role === 'detective' && !me.abilityUsed) list.push('use_detective');
     return list;
   }
 
@@ -50,8 +52,11 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
   let revealedRoles: Record<string, import('@now/game-types').RoleId> | null = null;
   if (state.phase === 'result') {
     voteTallies = {};
-    for (const targetId of Object.values(state.votes)) {
-      voteTallies[targetId] = (voteTallies[targetId] ?? 0) + 1;
+    for (const [voterId, targetId] of Object.entries(state.votes)) {
+      const voter = state.players.find((p) => p.id === voterId);
+      // Reconstruct ballot weight from role base tickets (ignore post-scoring bonuses)
+      const weight = Math.max(1, baseTicketsForRole(voter?.role ?? null));
+      voteTallies[targetId] = (voteTallies[targetId] ?? 0) + weight;
     }
     revealedRoles = Object.fromEntries(
       state.players.filter((p) => p.role).map((p) => [p.id, p.role!]),
@@ -75,6 +80,8 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
       difficulty: p.difficulty,
       status: playerStatus(state, p.id),
       currentAction: p.currentAction,
+      tickets: p.tickets,
+      roleRevealed: p.roleRevealed,
     })),
     currentPlayerId: current?.id ?? null,
     phaseEndsAt: state.phaseEndsAt,
@@ -87,23 +94,28 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
     passHistory: state.passHistory,
     voteTallies,
     winnerSide: state.winnerSide,
+    privateRoomPlayerId: state.privateRoomPlayerId,
     lockedPlayerId: state.lockedPlayerId,
     revealedRoles,
     scores: state.scores,
+    ticketBreakdown: state.phase === 'result' ? state.ticketBreakdown : null,
     variant: state.variant,
     guestRoomPeeked: state.guestRoomPeeked,
     aiReasoning: state.phase === 'result' ? state.aiReasoning : [],
+    winningRoleIds: state.phase === 'result' ? state.winningRoleIds : [],
   };
 
   const privateView: MatchPrivateView = {
     role: me?.role ?? null,
     hand: me?.hand ?? [],
     myVote: me?.voteTargetId ?? null,
-    guestRoomCard: state.spyPeeks[playerId] ?? null,
-    doctorResult: state.doctorResults[playerId] ?? null,
-    detectiveReveal: state.detectiveReveals[playerId] ?? null,
+    guestRoomCard: null,
+    butlerPeek: state.butlerPeeks[playerId] ?? null,
+    detectiveNote:
+      me?.role === 'detective' || state.phase === 'result' ? state.detectiveNote : null,
     legalActions: legalActions(state, playerId),
     suspicion: state.aiMinds[playerId]?.suspicion ?? {},
+    tickets: me?.tickets ?? 1,
   };
 
   return { public: publicView, private: privateView };

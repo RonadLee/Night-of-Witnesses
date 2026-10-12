@@ -9,6 +9,7 @@ import type {
   PlayerSeat,
   RoleId,
   Sighting,
+  TicketBreakdown,
   WinnerSide,
 } from '@now/game-types';
 import { DEFAULT_VARIANT } from '@now/game-types';
@@ -33,6 +34,8 @@ export interface InternalPlayer {
   difficulty: AiDifficulty | null;
   status: string;
   currentAction: string | null;
+  tickets: number;
+  roleRevealed: boolean;
 }
 
 export interface MatchState {
@@ -56,15 +59,24 @@ export interface MatchState {
     reason?: string;
   }>;
   winnerSide: WinnerSide;
+  /** Alias of privateRoomPlayerId for UI compatibility */
   lockedPlayerId: string | null;
+  privateRoomPlayerId: string | null;
   scores: Record<string, number>;
   revoteCount: number;
   votes: Record<string, string>;
-  doctorResults: Record<string, { targetPlayerId: string; isMurderer: boolean }>;
-  detectiveReveals: Record<string, { targetPlayerId: string; passedCard: RoleId }>;
-  spyPeeks: Record<string, RoleId>;
+  /** Butler secret peeks: actorId -> [{playerId, role}] */
+  butlerPeeks: Record<string, Array<{ playerId: string; role: RoleId }>>;
+  /** Silent whitening targets if Murderer enters Private Room */
+  butlerWhitenedPlayerIds: string[];
+  lawyerTargetId: string | null;
+  detectiveNote: string | null;
+  ticketBreakdown: TicketBreakdown[] | null;
+  winningRoleIds: RoleId[];
   guestRoomPeeked: boolean;
   pendingPassToGuest: RoleId | null;
+  /** Prevent infinite Detective ability chains */
+  abilityChainDepth: number;
   aiMinds: Record<string, AiMind>;
   aiReasoning: Array<{ playerId: string; summary: string }>;
   nextBotActAt: number | null;
@@ -99,6 +111,8 @@ export function seatsFromPlayers(players: PlayerSeat[]): InternalPlayer[] {
     difficulty: p.difficulty ?? null,
     status: 'Waiting',
     currentAction: null,
+    tickets: 1,
+    roleRevealed: false,
   }));
 }
 

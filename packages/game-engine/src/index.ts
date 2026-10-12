@@ -6,7 +6,15 @@ export { chooseBotAction, runBots } from './bots';
 export { chooseAiAction, reasoningSummary } from './ai/decide';
 export { buildAiRoster, FLAVOR, PERSONALITIES, type AiProfile } from './ai/roster';
 export { createMind, type AiMind } from './ai/mind';
-export { buildDeck, teamOf, V1_WITNESS_ROLES } from './roles';
+export {
+  buildDeck,
+  teamOf,
+  V1_WITNESS_ROLES,
+  ROLE_CATALOG,
+  isGuestRole,
+  resolvePrivateRoomOutcome,
+  baseTicketsForRole,
+} from './roles';
 export { createRng, shuffleInPlace, pickRandom } from './rng';
 export type { MatchState, EngineResult, InternalPlayer } from './state';
 export { cloneState, defaultVariant, pushActivity } from './state';

@@ -2,7 +2,7 @@ import type { MatchVariant, PlayerSeat } from '@now/game-types';
 import { MAX_PLAYERS, MIN_PLAYERS } from '@now/game-types';
 import { createMind } from './ai/mind';
 import { createRng } from './rng';
-import { buildDeck } from './roles';
+import { baseTicketsForRole, buildDeck } from './roles';
 import { defaultVariant, pushActivity, seatsFromPlayers, type MatchState } from './state';
 
 export interface CreateMatchOptions {
@@ -63,14 +63,19 @@ export function createMatch(options: CreateMatchOptions): MatchState {
     passHistory: [],
     winnerSide: null,
     lockedPlayerId: null,
+    privateRoomPlayerId: null,
     scores: Object.fromEntries(sorted.map((p) => [p.id, 0])),
     revoteCount: 0,
     votes: {},
-    doctorResults: {},
-    detectiveReveals: {},
-    spyPeeks: {},
+    butlerPeeks: {},
+    butlerWhitenedPlayerIds: [],
+    lawyerTargetId: null,
+    detectiveNote: null,
+    ticketBreakdown: null,
+    winningRoleIds: [],
     guestRoomPeeked: false,
     pendingPassToGuest: null,
+    abilityChainDepth: 0,
     aiMinds,
     aiReasoning: [],
     nextBotActAt: now + 400,
@@ -86,6 +91,13 @@ export function createMatch(options: CreateMatchOptions): MatchState {
   pushActivity(state, 'phase', 'Role assignment began. Pass the cards.', undefined, now);
 
   return state;
+}
+
+/** After a player keeps a role, assign base tickets. */
+export function assignTicketsForRole(state: MatchState, playerId: string): void {
+  const p = state.players.find((x) => x.id === playerId);
+  if (!p) return;
+  p.tickets = baseTicketsForRole(p.role);
 }
 
 export function dealDrawToCurrent(state: MatchState): void {
@@ -105,6 +117,5 @@ export function nextSeatIndex(state: MatchState, from: number): number {
 }
 
 export function seatsRemainingInPass(state: MatchState): boolean {
-  // Have all seats kept a role?
   return state.players.some((p) => p.role === null);
 }

@@ -121,8 +121,13 @@ export function SoloClient() {
     if (!state || state.phase !== 'result' || recordedResult) return;
     const role = state.players.find((p) => p.id === HUMAN_ID)?.role;
     const won =
-      (state.winnerSide === 'witnesses' && role !== 'murderer' && role !== 'accomplice') ||
-      (state.winnerSide === 'murderers' && (role === 'murderer' || role === 'accomplice'));
+      (state.winnerSide === 'guest_side' &&
+        role !== 'murderer' &&
+        role !== 'accomplice' &&
+        role !== 'bomber') ||
+      (state.winnerSide === 'murderer_side' &&
+        (role === 'murderer' || role === 'accomplice')) ||
+      (state.winnerSide === 'bomber' && role === 'bomber');
     const human = state.players.find((p) => p.id === HUMAN_ID);
     const murderer = state.players.find((p) => p.role === 'murderer');
     const votedCorrectly = Boolean(

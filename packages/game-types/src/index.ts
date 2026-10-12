@@ -1,20 +1,21 @@
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 9;
 
+/** Official Night of Witnesses roles (shared Solo + Multiplayer). */
 export type RoleId =
   | 'murderer'
   | 'accomplice'
-  | 'doctor'
+  | 'bomber'
+  | 'butler'
   | 'detective'
-  | 'spy'
-  | 'priest'
+  | 'merchant'
   | 'lawyer'
-  | 'journalist'
-  | 'engineer'
-  | 'psychologist'
-  | 'merchant';
+  | 'guest_yellow'
+  | 'guest_blue'
+  | 'guest_red';
 
-export type Team = 'murderer' | 'witness';
+/** Faction for coarse AI alignment (Bomber is solo). */
+export type Team = 'murderer_side' | 'guest_side' | 'bomber' | 'neutral';
 
 export type Phase =
   | 'lobby'
@@ -83,17 +84,16 @@ export interface Sighting {
 export type Action =
   | { type: 'keep_card'; keepIndex: 0 | 1; passReason?: string }
   | { type: 'announce_sighting'; claimedRole: RoleId; claimedThroughPlayerId: string; text?: string }
-  | { type: 'use_doctor'; targetPlayerId: string }
+  | { type: 'use_butler'; targetA: string; targetB: string }
   | { type: 'use_detective'; targetPlayerId: string }
-  | { type: 'use_spy' }
-  | { type: 'use_priest'; targetPlayerId: string }
+  | { type: 'use_lawyer'; targetPlayerId: string }
   | { type: 'skip_ability' }
   | { type: 'chat'; text: string }
   | { type: 'gesture'; gestureId: string }
   | { type: 'end_discussion' }
   | { type: 'cast_vote'; targetPlayerId: string };
 
-export type WinnerSide = 'witnesses' | 'murderers' | null;
+export type WinnerSide = 'murderer_side' | 'guest_side' | 'bomber' | 'none' | null;
 
 export type ActivityKind =
   | 'pass'
@@ -126,14 +126,25 @@ export interface PublicPlayerView {
   difficulty: AiDifficulty | null;
   status: string;
   currentAction: string | null;
+  tickets: number;
+  roleRevealed: boolean;
 }
 
 export interface AbilityReveal {
-  kind: 'doctor' | 'detective' | 'spy' | 'priest';
+  kind: 'butler' | 'detective' | 'lawyer' | 'merchant' | 'system';
   actorPlayerId: string;
   targetPlayerId?: string;
   summary: string;
   privateTo?: string;
+}
+
+export interface TicketBreakdown {
+  playerId: string;
+  baseTickets: number;
+  merchantBonus: number;
+  lawyerPenalty: number;
+  finalTickets: number;
+  butlerWhitened: boolean;
 }
 
 export interface MatchPublicView {
@@ -155,12 +166,16 @@ export interface MatchPublicView {
   }>;
   voteTallies: Record<string, number> | null;
   winnerSide: WinnerSide;
+  /** Player sent to 爆鎖室 / Private Room */
+  privateRoomPlayerId: string | null;
   lockedPlayerId: string | null;
   revealedRoles: Record<string, RoleId> | null;
   scores: Record<string, number>;
+  ticketBreakdown: TicketBreakdown[] | null;
   variant: MatchVariant;
   guestRoomPeeked: boolean;
   aiReasoning: Array<{ playerId: string; summary: string }>;
+  winningRoleIds: RoleId[];
 }
 
 export interface MatchPrivateView {
@@ -168,10 +183,12 @@ export interface MatchPrivateView {
   hand: RoleId[];
   myVote: string | null;
   guestRoomCard: RoleId | null;
-  doctorResult: { targetPlayerId: string; isMurderer: boolean } | null;
-  detectiveReveal: { targetPlayerId: string; passedCard: RoleId } | null;
+  /** Butler-only: secretly viewed guest roles */
+  butlerPeek: Array<{ playerId: string; role: RoleId }> | null;
+  detectiveNote: string | null;
   legalActions: Action['type'][];
   suspicion: Record<string, number>;
+  tickets: number;
 }
 
 export interface PlayerMatchView {

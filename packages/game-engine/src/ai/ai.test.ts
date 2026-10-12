@@ -36,7 +36,7 @@ describe('AI roster + decisions', () => {
       state = r.state;
     }
     const actor = state.players[state.currentSeat]!;
-    actor.hand = ['murderer', 'doctor'];
+    actor.hand = ['murderer', 'guest_yellow'];
     const action = chooseAiAction(state, actor.id, 1_000);
     expect(action?.type).toBe('keep_card');
   });
@@ -87,12 +87,19 @@ describe('AI roster + decisions', () => {
       } else if (actionType === 'announce_sighting') {
         state = applyAction(state, 'human', {
           type: 'announce_sighting',
-          claimedRole: 'doctor',
+          claimedRole: 'guest_yellow',
           claimedThroughPlayerId: players[1]!.id,
-          text: 'I saw Doctor near seat 2',
+          text: 'I saw a yellow guest near seat 2',
+        }).state;
+      } else if (actionType === 'use_detective') {
+        state = applyAction(state, 'human', {
+          type: 'use_detective',
+          targetPlayerId: players[1]!.id,
         }).state;
       } else if (actionType === 'skip_ability' || actionType.startsWith('use_')) {
-        state = applyAction(state, 'human', { type: 'skip_ability' }).state;
+        if (view.private.legalActions.includes('skip_ability')) {
+          state = applyAction(state, 'human', { type: 'skip_ability' }).state;
+        }
       } else if (actionType === 'cast_vote') {
         state = applyAction(state, 'human', {
           type: 'cast_vote',

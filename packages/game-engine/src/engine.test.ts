@@ -22,9 +22,12 @@ function forceRoles(state: MatchState, roles: MatchState['players'][number]['rol
   roles.forEach((role, i) => {
     next.players[i]!.role = role;
     next.players[i]!.hand = [];
-    next.players[i]!.passedCard = role === 'doctor' ? 'spy' : 'doctor';
+    next.players[i]!.passedCard = role === 'murderer' ? 'guest_yellow' : 'guest_blue';
+    next.players[i]!.tickets = role === 'merchant' ? 2 : 1;
+    next.players[i]!.abilityUsed = false;
+    next.players[i]!.hasAnnounced = false;
   });
-  next.guestRoomCard = 'priest';
+  next.guestRoomCard = 'guest_red';
   next.deck = [];
   next.phase = 'information';
   next.currentSeat = 0;
@@ -43,6 +46,11 @@ describe('buildDeck', () => {
     expect(deck6.filter((r) => r === 'accomplice')).toHaveLength(1);
     const deck4 = buildDeck(4, defaultVariant(), createRng(4));
     expect(deck4.filter((r) => r === 'accomplice')).toHaveLength(0);
+  });
+
+  it('includes bomber when specialCards and 5+', () => {
+    const deck5 = buildDeck(5, defaultVariant({ specialCards: true }), createRng(8));
+    expect(deck5).toContain('bomber');
   });
 
   it('rejects invalid counts', () => {
@@ -85,7 +93,6 @@ describe('privacy getView', () => {
   it('does not leak other roles or guest room', () => {
     let state = createMatch({ players: seats(4), seed: 7 });
     state = runBots(state);
-    // finish remaining human keeps if any
     while (state.phase === 'role_assignment') {
       const cur = state.players[state.currentSeat]!;
       if (cur.isBot) {
@@ -100,88 +107,93 @@ describe('privacy getView', () => {
     const otherRoles = state.players.filter((p) => p.id !== 'human').map((p) => p.role);
     expect(humanView.private.role).toBe(state.players[0]!.role);
     expect(humanView.private.guestRoomCard).toBeNull();
-    // public players must not include kept-role fields or hands
     for (const p of humanView.public.players) {
       expect(p).not.toHaveProperty('role');
       expect(p).not.toHaveProperty('hand');
     }
     expect(otherRoles.every(Boolean)).toBe(true);
-    // Kept identities stay private until result (pass feed may show passed card types)
     expect(humanView.public.revealedRoles).toBeNull();
-    expect(humanView.private.guestRoomCard).toBeNull();
   });
 });
 
 describe('phase 2 abilities', () => {
-  it('doctor confirms murderer status privately', () => {
+  it('butler secretly peeks two guests without notifying them', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 1 }), [
-      'doctor',
+      'butler',
+      'guest_yellow',
+      'guest_blue',
       'murderer',
-      'spy',
-      'priest',
     ]);
     state = applyAction(state, 'human', {
       type: 'announce_sighting',
-      claimedRole: 'spy',
+      claimedRole: 'guest_yellow',
       claimedThroughPlayerId: 'bot-1',
     }).state;
     state = applyAction(state, 'human', {
-      type: 'use_doctor',
-      targetPlayerId: 'bot-1',
+      type: 'use_butler',
+      targetA: 'bot-1',
+      targetB: 'bot-2',
     }).state;
-    const view = getView(state, 'human');
-    expect(view.private.doctorResult).toEqual({
-      targetPlayerId: 'bot-1',
-      isMurderer: true,
-    });
+    const butlerView = getView(state, 'human');
+    expect(butlerView.private.butlerPeek).toEqual([
+      { playerId: 'bot-1', role: 'guest_yellow' },
+      { playerId: 'bot-2', role: 'guest_blue' },
+    ]);
+    expect(getView(state, 'bot-1').private.butlerPeek).toBeNull();
+    expect(state.butlerWhitenedPlayerIds).toEqual(expect.arrayContaining(['bot-1', 'bot-2']));
   });
 
-  it('detective fails closed without passed card', () => {
+  it('detective sends target to Private Room and ends round', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 1 }), [
       'detective',
       'murderer',
-      'spy',
-      'priest',
+      'guest_yellow',
+      'merchant',
     ]);
-    state.players[1]!.passedCard = null;
     state = applyAction(state, 'human', {
       type: 'announce_sighting',
       claimedRole: 'murderer',
-      claimedThroughPlayerId: 'bot-2',
+      claimedThroughPlayerId: 'bot-1',
     }).state;
-    const result = applyAction(state, 'human', {
+    state = applyAction(state, 'human', {
       type: 'use_detective',
       targetPlayerId: 'bot-1',
-    });
-    expect(result.ok).toBe(false);
+    }).state;
+    expect(state.phase).toBe('result');
+    expect(state.privateRoomPlayerId).toBe('bot-1');
+    expect(state.winnerSide).toBe('guest_side');
   });
 
-  it('spy peeks guest room privately', () => {
+  it('lawyer marks ticket target privately', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 1 }), [
-      'spy',
+      'lawyer',
       'murderer',
-      'doctor',
-      'priest',
+      'guest_yellow',
+      'merchant',
     ]);
-    state.guestRoomCard = 'accomplice';
     state = applyAction(state, 'human', {
       type: 'announce_sighting',
-      claimedRole: 'doctor',
-      claimedThroughPlayerId: 'bot-2',
+      claimedRole: 'merchant',
+      claimedThroughPlayerId: 'bot-3',
     }).state;
-    state = applyAction(state, 'human', { type: 'use_spy' }).state;
-    expect(getView(state, 'human').private.guestRoomCard).toBe('accomplice');
-    expect(getView(state, 'bot-1').private.guestRoomCard).toBeNull();
+    state = applyAction(state, 'human', {
+      type: 'use_lawyer',
+      targetPlayerId: 'bot-3',
+    }).state;
+    expect(state.lawyerTargetId).toBe('bot-3');
+    expect(getView(state, 'bot-3').public.abilityReveals.every((r) => r.kind !== 'lawyer')).toBe(
+      true,
+    );
   });
 });
 
-describe('voting', () => {
-  it('witnesses win when murderer is locked', () => {
+describe('voting / Private Room', () => {
+  it('guest side wins when murderer enters Private Room', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 2 }), [
-      'doctor',
+      'guest_yellow',
       'murderer',
-      'spy',
-      'priest',
+      'guest_blue',
+      'merchant',
     ]);
     state.phase = 'voting';
     state.currentSeat = -1;
@@ -189,22 +201,55 @@ describe('voting', () => {
       state = applyAction(state, p.id, { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
     }
     expect(state.phase).toBe('result');
-    expect(state.winnerSide).toBe('witnesses');
-    expect(state.lockedPlayerId).toBe('bot-1');
+    expect(state.winnerSide).toBe('guest_side');
+    expect(state.privateRoomPlayerId).toBe('bot-1');
   });
 
-  it('murderers win when innocent is locked', () => {
+  it('murderer side wins when innocent enters Private Room', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 2 }), [
-      'doctor',
+      'guest_yellow',
       'murderer',
-      'spy',
-      'priest',
+      'guest_blue',
+      'merchant',
     ]);
     state.phase = 'voting';
     for (const p of state.players) {
       state = applyAction(state, p.id, { type: 'cast_vote', targetPlayerId: 'human' }).state;
     }
-    expect(state.winnerSide).toBe('murderers');
+    expect(state.winnerSide).toBe('murderer_side');
+  });
+
+  it('bomber solo wins when bomber enters Private Room', () => {
+    let state = forceRoles(createMatch({ players: seats(4), seed: 2 }), [
+      'guest_yellow',
+      'murderer',
+      'bomber',
+      'merchant',
+    ]);
+    state.phase = 'voting';
+    for (const p of state.players) {
+      state = applyAction(state, p.id, { type: 'cast_vote', targetPlayerId: 'bot-2' }).state;
+    }
+    expect(state.winnerSide).toBe('bomber');
+    expect(state.winningRoleIds).toContain('bomber');
+  });
+
+  it('merchant gains bonus tickets when murderer enters', () => {
+    let state = forceRoles(createMatch({ players: seats(4), seed: 2 }), [
+      'merchant',
+      'murderer',
+      'guest_yellow',
+      'lawyer',
+    ]);
+    state.lawyerTargetId = 'human';
+    state.phase = 'voting';
+    for (const p of state.players) {
+      state = applyAction(state, p.id, { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
+    }
+    const row = state.ticketBreakdown?.find((t) => t.playerId === 'human');
+    expect(row?.merchantBonus).toBe(2);
+    expect(row?.lawyerPenalty).toBe(1);
+    expect(row?.finalTickets).toBe(3); // 2 base + 2 bonus - 1 lawyer
   });
 
   it('rejects vote before voting phase', () => {
@@ -214,11 +259,12 @@ describe('voting', () => {
   });
 
   it('revotes once on tie then randomizes', () => {
+    // All 1-ticket roles so a 2–2 split is a true weight tie
     let state = forceRoles(createMatch({ players: seats(4), seed: 5 }), [
-      'doctor',
+      'guest_yellow',
       'murderer',
-      'spy',
-      'priest',
+      'guest_blue',
+      'guest_red',
     ]);
     state.phase = 'voting';
     state = applyAction(state, 'human', { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
@@ -227,23 +273,22 @@ describe('voting', () => {
     state = applyAction(state, 'bot-3', { type: 'cast_vote', targetPlayerId: 'human' }).state;
     expect(state.phase).toBe('voting');
     expect(state.revoteCount).toBe(1);
-    // second round still tied 2-2
     state = applyAction(state, 'human', { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
     state = applyAction(state, 'bot-1', { type: 'cast_vote', targetPlayerId: 'human' }).state;
     state = applyAction(state, 'bot-2', { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
     state = applyAction(state, 'bot-3', { type: 'cast_vote', targetPlayerId: 'human' }).state;
     expect(state.phase).toBe('result');
-    expect(['human', 'bot-1']).toContain(state.lockedPlayerId);
+    expect(['human', 'bot-1']).toContain(state.privateRoomPlayerId);
   });
 });
 
 describe('discussion timer', () => {
   it('tick ends discussion when timer expires', () => {
     let state = forceRoles(createMatch({ players: seats(4), seed: 1 }), [
-      'doctor',
+      'guest_yellow',
       'murderer',
-      'spy',
-      'priest',
+      'guest_blue',
+      'merchant',
     ]);
     state.phase = 'discussion';
     state.phaseEndsAt = 1000;
@@ -275,18 +320,30 @@ describe('solo bots full round', () => {
       } else if (actionType === 'announce_sighting') {
         state = applyAction(state, 'human', {
           type: 'announce_sighting',
-          claimedRole: 'doctor',
+          claimedRole: 'guest_yellow',
           claimedThroughPlayerId: 'bot-1',
         }).state;
       } else if (actionType === 'skip_ability') {
         state = applyAction(state, 'human', { type: 'skip_ability' }).state;
       } else if (actionType === 'cast_vote') {
         state = applyAction(state, 'human', { type: 'cast_vote', targetPlayerId: 'bot-1' }).state;
+      } else if (actionType === 'use_detective') {
+        // Avoid ending early mid-loop inconsistently — skip via skip when possible
+        if (view.private.legalActions.includes('skip_ability')) {
+          state = applyAction(state, 'human', { type: 'skip_ability' }).state;
+        } else {
+          state = applyAction(state, 'human', {
+            type: 'use_detective',
+            targetPlayerId: 'bot-1',
+          }).state;
+        }
       } else if (actionType.startsWith('use_')) {
-        state = applyAction(state, 'human', { type: 'skip_ability' }).state;
+        if (view.private.legalActions.includes('skip_ability')) {
+          state = applyAction(state, 'human', { type: 'skip_ability' }).state;
+        }
       }
     }
     expect(state.phase).toBe('result');
-    expect(state.winnerSide).toMatch(/witnesses|murderers/);
+    expect(state.winnerSide).toMatch(/guest_side|murderer_side|bomber|none/);
   });
 });

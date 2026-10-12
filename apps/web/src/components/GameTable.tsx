@@ -8,14 +8,19 @@ import { MatchChat } from '@/components/match/MatchChat';
 import { MatchTimer } from '@/components/match/MatchTimer';
 import { PassConfirmModal } from '@/components/game/PassConfirmModal';
 import { ResultPanel } from '@/components/game/ResultPanel';
+import { RoleCard } from '@/components/game/RoleCard';
 
-const V1_ROLES: RoleId[] = [
+const ALL_ROLES: RoleId[] = [
   'murderer',
   'accomplice',
-  'doctor',
+  'bomber',
+  'butler',
   'detective',
-  'spy',
-  'priest',
+  'merchant',
+  'lawyer',
+  'guest_yellow',
+  'guest_blue',
+  'guest_red',
 ];
 
 interface GameTableProps {
@@ -184,26 +189,30 @@ export function GameTable({
         </section>
       )}
 
-      <section className="border border-[var(--line)] bg-[var(--panel)] px-4 py-3">
-        <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Your secrets</p>
-        <p className="mt-1 text-lg">
-          Role: <strong>{roleLabel(priv.role)}</strong>
-        </p>
-        {priv.doctorResult && (
-          <p className="mt-1 text-sm">
-            Doctor: {priv.doctorResult.isMurderer ? 'IS Murderer' : 'NOT Murderer'} (
-            {nameOf(pub, priv.doctorResult.targetPlayerId)})
+      <section className="flex flex-col gap-3 border border-[var(--line)] bg-[var(--panel)] px-4 py-3 sm:flex-row sm:items-start">
+        <div className="flex-1">
+          <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Your secrets</p>
+          <p className="mt-1 text-lg">
+            Role: <strong>{priv.role ? roleLabel(priv.role) : '—'}</strong>
           </p>
-        )}
-        {priv.detectiveReveal && (
-          <p className="mt-1 text-sm">
-            Detective: {nameOf(pub, priv.detectiveReveal.targetPlayerId)} passed{' '}
-            {roleLabel(priv.detectiveReveal.passedCard)}
-          </p>
-        )}
-        {priv.guestRoomCard && (
-          <p className="mt-1 text-sm">Guest Room peek: {roleLabel(priv.guestRoomCard)}</p>
-        )}
+          <p className="mt-1 text-sm text-[var(--fog)]">Tickets: {priv.tickets}</p>
+          {priv.butlerPeek && priv.butlerPeek.length > 0 && (
+            <div className="mt-2 text-sm">
+              <p className="text-[var(--fog-dim)]">Butler peek (private):</p>
+              <ul className="mt-1 space-y-1">
+                {priv.butlerPeek.map((g) => (
+                  <li key={g.playerId}>
+                    {nameOf(pub, g.playerId)} → {roleLabel(g.role)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {priv.detectiveNote && (
+            <p className="mt-1 text-sm text-[var(--ember-hot)]">{priv.detectiveNote}</p>
+          )}
+        </div>
+        {priv.role && <RoleCard role={priv.role} compact />}
       </section>
 
       {pub.sightings.length > 0 && (
@@ -240,7 +249,7 @@ export function GameTable({
       <section className="flex flex-col gap-3">
         {legal.has('announce_sighting') && (
           <SightingForm
-            roles={V1_ROLES}
+            roles={ALL_ROLES}
             players={others}
             onSubmit={(claimedRole, claimedThroughPlayerId, text) =>
               onAction({
@@ -252,34 +261,24 @@ export function GameTable({
             }
           />
         )}
-        {legal.has('use_doctor') && (
-          <TargetButtons
-            label="Doctor: examine (or click a seat)"
+        {legal.has('use_butler') && (
+          <ButlerPicker
             players={others}
-            onPick={(id) => onAction({ type: 'use_doctor', targetPlayerId: id })}
+            onPick={(a, b) => onAction({ type: 'use_butler', targetA: a, targetB: b })}
           />
         )}
         {legal.has('use_detective') && (
           <TargetButtons
-            label="Detective: reveal passed card"
+            label="Detective: send one player to the Private Room (爆鎖室)"
             players={others}
             onPick={(id) => onAction({ type: 'use_detective', targetPlayerId: id })}
           />
         )}
-        {legal.has('use_spy') && (
-          <button
-            type="button"
-            className="border border-[var(--fog)] px-4 py-3"
-            onClick={() => onAction({ type: 'use_spy' })}
-          >
-            Spy: peek Guest Room
-          </button>
-        )}
-        {legal.has('use_priest') && (
+        {legal.has('use_lawyer') && (
           <TargetButtons
-            label="Priest: silence"
+            label="Lawyer: invalidate one player's ticket (−1 at scoring)"
             players={others}
-            onPick={(id) => onAction({ type: 'use_priest', targetPlayerId: id })}
+            onPick={(id) => onAction({ type: 'use_lawyer', targetPlayerId: id })}
           />
         )}
         {legal.has('skip_ability') && (
@@ -301,7 +300,10 @@ export function GameTable({
           </button>
         )}
         {voteEnabled && (
-          <p className="text-sm text-[var(--fog)]">Click any seat at the table to cast your vote.</p>
+          <p className="text-sm text-[var(--fog)]">
+            Click any seat to vote them into the Private Room (爆鎖室). Merchant votes count as 2
+            tickets.
+          </p>
         )}
       </section>
 
@@ -426,6 +428,44 @@ function TargetButtons({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ButlerPicker({
+  players,
+  onPick,
+}: {
+  players: Array<{ id: string; name: string }>;
+  onPick: (a: string, b: string) => void;
+}) {
+  const [a, setA] = useState<string>(players[0]?.id ?? '');
+  const [b, setB] = useState<string>(players[1]?.id ?? players[0]?.id ?? '');
+  return (
+    <div className="flex flex-col gap-2 border border-[var(--line)] p-3">
+      <p className="text-sm text-[var(--fog)]">Butler: secretly view two Guests</p>
+      <select className="field" value={a} onChange={(e) => setA(e.target.value)}>
+        {players.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <select className="field" value={b} onChange={(e) => setB(e.target.value)}>
+        {players.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]"
+        disabled={!a || !b || a === b}
+        onClick={() => onPick(a, b)}
+      >
+        Confirm Butler peek
+      </button>
     </div>
   );
 }

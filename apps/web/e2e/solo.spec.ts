@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+const WIN_HEADING = /Guest side wins|Murderer side wins|Bomber wins alone|No winner/i;
+
 test('home offers solo and multiplayer', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /Night of/i })).toBeVisible();
@@ -18,12 +20,7 @@ test('solo uses shared lobby/table and can complete a round', async ({ page }) =
   });
 
   for (let step = 0; step < 120; step++) {
-    if (
-      await page
-        .getByRole('heading', { name: /Witnesses win|Murderer side wins/i })
-        .isVisible()
-        .catch(() => false)
-    ) {
+    if (await page.getByRole('heading', { name: WIN_HEADING }).isVisible().catch(() => false)) {
       break;
     }
 
@@ -56,7 +53,12 @@ test('solo uses shared lobby/table and can complete a round', async ({ page }) =
       continue;
     }
 
-    if (await page.getByText('Click any seat at the table to cast your vote.').isVisible().catch(() => false)) {
+    if (
+      await page
+        .getByText(/Click any seat to vote them into the Private Room/i)
+        .isVisible()
+        .catch(() => false)
+    ) {
       const seats = page.locator('.circular-seat');
       if (await seats.count()) {
         await seats.nth(1).click();
@@ -64,18 +66,11 @@ test('solo uses shared lobby/table and can complete a round', async ({ page }) =
       }
     }
 
-    const spy = page.getByRole('button', { name: /peek Guest Room/i });
-    if (await spy.isVisible().catch(() => false)) {
-      await spy.click();
-      continue;
-    }
-
     await page.waitForTimeout(200);
   }
 
-  await expect(
-    page.getByRole('heading', { name: /Witnesses win|Murderer side wins/i }),
-  ).toBeVisible({
+  await expect(page.getByRole('heading', { name: WIN_HEADING })).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByText(/Private Room/i).first()).toBeVisible();
 });
