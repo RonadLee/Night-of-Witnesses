@@ -118,3 +118,5 @@ export interface PlayerMatchView {
   public: MatchPublicView;
   private: MatchPrivateView;
 }
+
+export * from './table';

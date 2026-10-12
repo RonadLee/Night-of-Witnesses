@@ -9,7 +9,7 @@
     "dev:server": "pnpm --filter @now/game-server dev",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
-    "test": "pnpm --filter @now/game-engine test",
+    "test": "pnpm --filter @now/game-engine test && pnpm --filter @now/game-server test",
     "test:e2e": "pnpm --filter @now/web test:e2e",
     "lint": "pnpm -r run lint",
     "format": "prettier --write ."

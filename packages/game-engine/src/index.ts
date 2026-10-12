@@ -7,3 +7,4 @@ export { buildDeck, teamOf, V1_WITNESS_ROLES } from './roles';
 export { createRng, shuffleInPlace, pickRandom } from './rng';
 export type { MatchState, EngineResult, InternalPlayer } from './state';
 export { cloneState, defaultVariant } from './state';
+export * from './table';
