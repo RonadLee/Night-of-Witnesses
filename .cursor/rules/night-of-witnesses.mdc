@@ -14,3 +14,4 @@ alwaysApply: true
 - TypeScript strict; prefer small pure functions and Vitest over UI-only logic.
 - Solo and multiplayer must share the same engine; bots call `applyAction` like humans.
 - v1 professions: Doctor, Detective, Spy, Priest. Defer Lawyer, Journalist, Engineer, Psychologist, Merchant.
+- Solo keeps the v1 engine. Multiplayer Boiler Room cards live in `packages/game-engine/src/table` and must not change solo outcomes.

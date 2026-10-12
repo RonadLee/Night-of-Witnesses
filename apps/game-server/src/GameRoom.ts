@@ -1,212 +1,151 @@
-import { Room, Client } from '@colyseus/core';
-import {
-  applyAction,
-  createMatch,
-  getView,
-  tick,
-  type MatchState,
-} from '@now/game-engine';
-import type { Action, MatchVariant, PlayerMatchView } from '@now/game-types';
-import { MAX_PLAYERS, MIN_PLAYERS } from '@now/game-types';
-
-interface Seat {
-  playerId: string;
-  name: string;
-  sessionId: string | null;
-  seatIndex: number;
-  connected: boolean;
-  disconnectDeadline: number | null;
-}
+import { Client, Room } from '@colyseus/core';
+import { log } from './log';
+import { claimCode, makeCode, releaseCode } from './registry';
+import { RoomModel } from './roomModel';
+import { store } from './storeInstance';
 
 interface JoinOptions {
-  name?: string;
-  playerId?: string;
+  name?: unknown;
+  playerId?: unknown;
+  token?: unknown;
+  spectate?: unknown;
+  code?: unknown;
+  restore?: unknown;
 }
 
 export class GameRoom extends Room {
-  maxClients = MAX_PLAYERS;
-  private seats: Seat[] = [];
-  private hostPlayerId: string | null = null;
-  private match: MatchState | null = null;
-  private views: Map<string, PlayerMatchView> = new Map();
-  private roomCode = '';
-  private variant: Partial<MatchVariant> = {};
-  private reconnectMs = 60_000;
+  maxClients = 16;
+  private model!: RoomModel;
+  private typingAt = new Map<string, number>();
 
-  onCreate(options: { code?: string; variant?: Partial<MatchVariant> }) {
-    this.roomCode = options.code ?? this.roomId.slice(0, 6).toUpperCase();
-    this.variant = options.variant ?? {};
-    this.setMetadata({ code: this.roomCode });
-    this.setSimulationInterval((dt) => this.pump(dt), 1000);
-
-    this.onMessage('start', (client) => this.handleStart(client));
-    this.onMessage('action', (client, message: Action) => this.handleAction(client, message));
-    this.onMessage('ping_view', (client) => this.sendView(client));
+  onCreate(options: JoinOptions) {
+    const requested = typeof options.code === 'string' ? options.code.trim().toUpperCase() : '';
+    const code = options.restore ? requested : makeCode();
+    if (!/^[A-Z0-9]{4,8}$/.test(code) || !claimCode(code)) {
+      throw new Error('Room code is unavailable');
+    }
+    this.model = new RoomModel(store, code);
+    if (options.restore && !this.model.restore(Date.now())) {
+      releaseCode(code);
+      throw new Error('This room cannot be restored');
+    }
+    this.setMetadata({ code: this.model.code });
+    Object.assign(this.listing, { code: this.model.code });
+    this.setSimulationInterval(() => this.pump(), 1000);
+    this.onMessage('settings', (client, message) => this.guard(client, () => this.model.updateSettings(this.pid(client), message, Date.now())));
+    this.onMessage('ready', (client, message: { ready?: boolean }) =>
+      this.guard(client, () => this.model.setReady(this.pid(client), message?.ready === true, Date.now())),
+    );
+    this.onMessage('start', (client) => this.guard(client, () => this.model.start(this.pid(client), Date.now())));
+    this.onMessage('action', (client, message) => this.guard(client, () => this.model.action(this.pid(client), message, Date.now())));
+    this.onMessage('command', (client, message: { type?: unknown }) =>
+      this.guard(client, () => this.model.command(this.pid(client), message?.type, Date.now())),
+    );
+    this.onMessage('typing', (client, message: { typing?: boolean }) => this.onTyping(client, message?.typing === true));
+    this.onMessage('ping_view', (client) => this.sendState(client));
+    log('info', 'room.create', { code: this.model.code, restore: Boolean(options.restore) });
   }
 
   onJoin(client: Client, options: JoinOptions) {
-    const name = (options.name ?? 'Guest').trim().slice(0, 24) || 'Guest';
-    const requestedId = options.playerId;
-
-    // Reconnect to existing seat
-    if (requestedId) {
-      const seat = this.seats.find((s) => s.playerId === requestedId);
-      if (seat && !seat.connected) {
-        seat.sessionId = client.sessionId;
-        seat.connected = true;
-        seat.disconnectDeadline = null;
-        client.userData = { playerId: seat.playerId };
-        this.broadcastLobby();
-        this.sendView(client);
-        return;
-      }
-    }
-
-    if (this.match) {
-      throw new Error('Match already started');
-    }
-    if (this.seats.length >= MAX_PLAYERS) {
-      throw new Error('Room full');
-    }
-
-    const playerId = requestedId ?? `p_${client.sessionId}`;
-    const seat: Seat = {
-      playerId,
-      name,
-      sessionId: client.sessionId,
-      seatIndex: this.seats.length,
-      connected: true,
-      disconnectDeadline: null,
-    };
-    this.seats.push(seat);
-    if (!this.hostPlayerId) this.hostPlayerId = playerId;
-    client.userData = { playerId };
-    this.broadcastLobby();
-  }
-
-  async onLeave(client: Client) {
-    const playerId = client.userData?.playerId as string | undefined;
-    if (!playerId) return;
-    const seat = this.seats.find((s) => s.playerId === playerId);
-    if (!seat) return;
-
-    seat.connected = false;
-    seat.sessionId = null;
-    seat.disconnectDeadline = Date.now() + this.reconnectMs;
-
-    if (!this.match) {
-      // Remove from lobby immediately
-      this.seats = this.seats.filter((s) => s.playerId !== playerId);
-      this.seats.forEach((s, i) => {
-        s.seatIndex = i;
-      });
-      if (this.hostPlayerId === playerId) {
-        this.hostPlayerId = this.seats[0]?.playerId ?? null;
-      }
-      this.broadcastLobby();
-      if (this.seats.length === 0) {
-        await this.disconnect();
-      }
-      return;
-    }
-
-    this.broadcastLobby();
-  }
-
-  private pump(_dt: number) {
-    const now = Date.now();
-
-    // Drop timed-out reconnects mid-match
-    if (this.match) {
-      const before = this.seats.length;
-      this.seats = this.seats.filter(
-        (s) => s.connected || (s.disconnectDeadline && s.disconnectDeadline > now),
-      );
-      if (this.seats.length < MIN_PLAYERS && before >= MIN_PLAYERS) {
-        this.broadcast('match_aborted', { reason: 'Not enough players after disconnects' });
-        this.match = null;
-      } else if (this.match) {
-        this.match = tick(this.match, now);
-        this.pushAllViews();
-      }
-    }
-
-    this.broadcastLobby();
-  }
-
-  private handleStart(client: Client) {
-    const playerId = client.userData?.playerId as string;
-    if (playerId !== this.hostPlayerId) {
-      client.send('error', { message: 'Only host can start' });
-      return;
-    }
-    if (this.seats.length < MIN_PLAYERS || this.seats.length > MAX_PLAYERS) {
-      client.send('error', { message: `Need ${MIN_PLAYERS}-${MAX_PLAYERS} players` });
-      return;
-    }
-    if (this.match) {
-      client.send('error', { message: 'Already started' });
-      return;
-    }
-
-    this.match = createMatch({
-      players: this.seats.map((s) => ({
-        id: s.playerId,
-        name: s.name,
-        isBot: false,
-        seatIndex: s.seatIndex,
-      })),
-      variant: this.variant,
+    const result = this.model.join({
+      playerId: options.playerId,
+      name: options.name,
+      token: options.token,
+      spectate: options.spectate,
+      connectionId: client.sessionId,
+      now: Date.now(),
     });
-    this.pushAllViews();
-    this.broadcast('started', { ok: true });
-  }
-
-  private handleAction(client: Client, action: Action) {
-    if (!this.match) {
-      client.send('error', { message: 'Match not started' });
-      return;
-    }
-    const playerId = client.userData?.playerId as string;
-    const result = applyAction(this.match, playerId, action);
     if (!result.ok) {
-      client.send('error', { message: result.error });
+      const others = this.clients.filter((c) => c.sessionId !== client.sessionId);
+      if (others.length === 0) void this.disconnect();
+      throw new Error(result.error);
+    }
+    client.userData = { playerId: result.playerId };
+    client.send('session', {
+      playerId: result.playerId,
+      token: result.token,
+      code: this.model.code,
+      rejoined: result.rejoined,
+    });
+    this.pushAll();
+  }
+
+  onLeave(client: Client) {
+    const playerId = this.pid(client);
+    if (!playerId) return;
+    this.model.disconnect(playerId, client.sessionId, Date.now());
+    this.pushAll();
+  }
+
+  onDispose() {
+    releaseCode(this.model.code);
+    log('info', 'room.dispose', { code: this.model.code });
+  }
+
+  private onTyping(client: Client, typing: boolean) {
+    const playerId = this.pid(client);
+    if (!playerId) return;
+    const now = Date.now();
+    const last = this.typingAt.get(playerId) ?? 0;
+    if (now - last < 250 && typing) return;
+    this.typingAt.set(playerId, now);
+    this.model.typing(playerId, typing);
+    this.broadcast('typing', { playerId, typing });
+  }
+
+  private guard(client: Client, run: () => string | null) {
+    try {
+      const error = run();
+      if (error) client.send('error', { message: error });
+      this.pushAll();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Something went wrong';
+      log('error', 'room.message', { code: this.model.code, message });
+      client.send('error', { message: 'The server could not apply that action' });
+    }
+  }
+
+  private pump() {
+    const empty = this.model.tick(Date.now());
+    if (empty) {
+      void this.disconnect();
       return;
     }
-    this.match = result.state;
-    this.pushAllViews();
+    this.pushAll();
   }
 
-  private pushAllViews() {
-    if (!this.match) return;
-    for (const seat of this.seats) {
-      if (!seat.sessionId || !seat.connected) continue;
-      const client = this.clients.find((c) => c.sessionId === seat.sessionId);
-      if (client) this.sendView(client);
+  private pushAll() {
+    const lobby = this.model.lobbyPayload();
+    const serverNow = Date.now();
+    for (const client of this.clients) {
+      const playerId = this.pid(client);
+      if (!playerId) continue;
+      client.send('lobby', lobby);
+      client.send('view', { ...this.model.viewFor(playerId), serverNow });
+      this.sendSession(client, playerId);
     }
   }
 
-  private sendView(client: Client) {
-    if (!this.match) return;
-    const playerId = client.userData?.playerId as string;
-    const view = getView(this.match, playerId);
-    this.views.set(playerId, view);
-    client.send('view', view);
+  private sendState(client: Client) {
+    const playerId = this.pid(client);
+    if (!playerId) return;
+    client.send('lobby', this.model.lobbyPayload());
+    client.send('view', { ...this.model.viewFor(playerId), serverNow: Date.now() });
+    this.sendSession(client, playerId);
   }
 
-  private broadcastLobby() {
-    this.broadcast('lobby', {
-      code: this.roomCode,
-      hostPlayerId: this.hostPlayerId,
-      seats: this.seats.map((s) => ({
-        playerId: s.playerId,
-        name: s.name,
-        seatIndex: s.seatIndex,
-        connected: s.connected,
-      })),
-      started: Boolean(this.match),
-      minPlayers: MIN_PLAYERS,
-      maxPlayers: MAX_PLAYERS,
+  private sendSession(client: Client, playerId: string) {
+    const seat = this.model.seats.find((item) => item.playerId === playerId);
+    if (!seat) return;
+    client.send('session', {
+      playerId,
+      token: seat.token,
+      code: this.model.code,
+      rejoined: false,
     });
+  }
+
+  private pid(client: Client): string {
+    return (client.userData?.playerId as string | undefined) ?? '';
   }
 }

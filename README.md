@@ -9,9 +9,12 @@ A browser social-deduction game (4–9 players) with **Solo** (vs bots) and **Mu
 | Web UI | Next.js 15 + Tailwind CSS 4 |
 | Rules | `@now/game-engine` (TypeScript + Vitest) |
 | Multiplayer | Colyseus WebSocket rooms |
+| Persistence | Embedded SQLite on the game server (no external database) |
 | Hosting | Vercel (web) + Railway/Fly/Docker (game server) |
 
-See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for frozen rules.
+See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for the frozen solo rules and [docs/BOILER_RULES.md](docs/BOILER_RULES.md) for the multiplayer Boiler Room deck.
+
+Multiplayer does not need API keys or a hosted database. See [docs/EXTERNAL_SERVICES.md](docs/EXTERNAL_SERVICES.md), [docs/API.md](docs/API.md), [docs/SCHEMA.md](docs/SCHEMA.md), and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Prerequisites
 
@@ -37,13 +40,14 @@ pnpm dev:server
 - Web: http://localhost:3000  
 - Game server health: http://localhost:2567/health  
 
-Optional: set `NEXT_PUBLIC_GAME_SERVER_URL=ws://localhost:2567` in `apps/web/.env.local`.
+Optional: set `NEXT_PUBLIC_GAME_SERVER_URL=ws://localhost:2567` in `apps/web/.env.local`. The game server writes rooms to `DATA_DIR` (default `./data` under `apps/game-server`). Templates live in each app's `.env.example`.
 
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
-| `pnpm test` | Engine unit tests |
+| `pnpm test` | Engine and game-server unit tests |
+| `node scripts/mp-smoke.mjs` | Four-client pass smoke (server must be running) |
 | `pnpm typecheck` | TypeScript across packages |
 | `pnpm --filter @now/web test:e2e` | Playwright smoke (solo round) |
 | `pnpm build` | Build all workspaces |
