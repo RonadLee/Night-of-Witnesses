@@ -1,119 +1,286 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   applyAction,
+  buildAiRoster,
   createMatch,
   getView,
-  runBots,
   tick,
   type MatchState,
 } from '@now/game-engine';
-import type { Action, PlayerMatchView } from '@now/game-types';
+import type { Action, PlayerMatchView, SoloLobbyConfig } from '@now/game-types';
 import { GameTable } from '@/components/GameTable';
+import { SoloLobby } from '@/components/game/SoloLobby';
+import {
+  autosave,
+  clearSave,
+  DEFAULT_SOLO_CONFIG,
+  loadHistory,
+  loadSave,
+  loadStats,
+  pushHistory,
+  recordMatchResult,
+  type SoloSaveBlob,
+} from '@/lib/solo/storage';
 
 const HUMAN_ID = 'human';
 
-function makeSeats(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    id: i === 0 ? HUMAN_ID : `bot-${i}`,
-    name: i === 0 ? 'You' : `Witness ${i}`,
-    isBot: i !== 0,
-    seatIndex: i,
-  }));
+function leagueDifficulty(league: SoloLobbyConfig['campaignLeague']): SoloLobbyConfig['difficulty'] {
+  switch (league) {
+    case 'beginner':
+      return 'easy';
+    case 'intermediate':
+      return 'normal';
+    case 'advanced':
+      return 'hard';
+    case 'expert':
+      return 'expert';
+    default:
+      return 'normal';
+  }
 }
 
 export function SoloClient() {
-  const [playerCount, setPlayerCount] = useState(5);
+  const searchParams = useSearchParams();
+  const fastMode = searchParams.get('fast') === '1';
+  const [screen, setScreen] = useState<'lobby' | 'table'>('lobby');
+  const [config, setConfig] = useState<SoloLobbyConfig>(() =>
+    fastMode
+      ? {
+          ...DEFAULT_SOLO_CONFIG,
+          aiCount: 3,
+          descriptionSeconds: 8,
+          discussionSeconds: 8,
+          votingSeconds: 5,
+        }
+      : DEFAULT_SOLO_CONFIG,
+  );
+  const [seed, setSeed] = useState(1);
   const [state, setState] = useState<MatchState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [, setTick] = useState(0);
+  const [stats, setStats] = useState(loadStats);
+  const [hasSave, setHasSave] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
+  const [now, setNow] = useState(0);
+  const [recordedResult, setRecordedResult] = useState(false);
+
+  const effectiveDifficulty = config.campaignLeague
+    ? leagueDifficulty(config.campaignLeague)
+    : config.difficulty;
+
+  // Stable seed on client only — avoids SSR/client roster name mismatches
+  const roster = useMemo(
+    () => buildAiRoster(config.aiCount, effectiveDifficulty, seed),
+    [config.aiCount, effectiveDifficulty, seed],
+  );
 
   const view: PlayerMatchView | null = useMemo(
     () => (state ? getView(state, HUMAN_ID) : null),
     [state],
   );
 
-  const phase = state?.phase;
-  const phaseEndsAt = state?.phaseEndsAt;
   useEffect(() => {
-    if (phase !== 'discussion' || !phaseEndsAt) return;
+    setSeed(42);
+    setHasSave(Boolean(loadSave()));
+    setHistoryCount(loadHistory().length);
+    setStats(loadStats());
+  }, []);
+
+  // Live clock + AI pacing (faster interval in e2e/fast mode)
+  useEffect(() => {
+    if (screen !== 'table' || !state || state.phase === 'result') return;
     const id = window.setInterval(() => {
-      setState((prev) => (prev ? tick(prev, Date.now()) : prev));
-      setTick((t) => t + 1);
-    }, 500);
+      const t = Date.now();
+      setNow(t);
+      setState((prev) => {
+        if (!prev) return prev;
+        let next = tick(prev, t);
+        // In fast mode, step bots more aggressively so e2e can finish
+        if (fastMode) {
+          for (let i = 0; i < 6; i++) {
+            next = tick(next, t + i + 1);
+            if (next.phase === 'result') break;
+            const humanLegal = getView(next, HUMAN_ID).private.legalActions.some(
+              (a) => a !== 'chat' && a !== 'gesture' && a !== 'end_discussion',
+            );
+            if (humanLegal) break;
+          }
+        }
+        return next;
+      });
+    }, fastMode ? 120 : 400);
     return () => window.clearInterval(id);
-  }, [phase, phaseEndsAt]);
+  }, [screen, state?.phase, fastMode]);
+
+  // Autosave
+  useEffect(() => {
+    if (!state || screen !== 'table') return;
+    const blob: SoloSaveBlob = {
+      savedAt: Date.now(),
+      config,
+      humanId: HUMAN_ID,
+      state,
+    };
+    autosave(blob);
+    setHasSave(true);
+  }, [state, screen, config]);
+
+  // Record stats on result once
+  useEffect(() => {
+    if (!state || state.phase !== 'result' || recordedResult) return;
+    const won =
+      (state.winnerSide === 'witnesses' &&
+        state.players.find((p) => p.id === HUMAN_ID)?.role !== 'murderer' &&
+        state.players.find((p) => p.id === HUMAN_ID)?.role !== 'accomplice') ||
+      (state.winnerSide === 'murderers' &&
+        (state.players.find((p) => p.id === HUMAN_ID)?.role === 'murderer' ||
+          state.players.find((p) => p.id === HUMAN_ID)?.role === 'accomplice'));
+    const human = state.players.find((p) => p.id === HUMAN_ID);
+    const murderer = state.players.find((p) => p.role === 'murderer');
+    const votedCorrectly = Boolean(
+      human?.voteTargetId && murderer && human.voteTargetId === murderer.id,
+    );
+    const nextStats = recordMatchResult({
+      difficulty: effectiveDifficulty,
+      won: Boolean(won),
+      score: state.scores[HUMAN_ID] ?? 0,
+      votedCorrectly,
+    });
+    pushHistory({
+      at: Date.now(),
+      winnerSide: state.winnerSide ?? 'unknown',
+      difficulty: effectiveDifficulty,
+      league: config.campaignLeague,
+      playerCount: state.players.length,
+    });
+    setStats(nextStats);
+    setHistoryCount(loadHistory().length);
+    setRecordedResult(true);
+    clearSave();
+    setHasSave(false);
+  }, [state, recordedResult, effectiveDifficulty, config.campaignLeague]);
 
   function start() {
-    let next = createMatch({ players: makeSeats(playerCount), seed: Date.now() });
-    next = runBots(next);
-    setState(next);
+    const nextSeed = Date.now();
+    setSeed(nextSeed);
+    const ai = buildAiRoster(config.aiCount, effectiveDifficulty, nextSeed);
+    const players = [
+      {
+        id: HUMAN_ID,
+        name: 'You',
+        isBot: false,
+        seatIndex: 0,
+        avatarId: 'avatar-you',
+      },
+      ...ai.map((a, i) => ({
+        id: a.id,
+        name: a.name,
+        isBot: true,
+        seatIndex: i + 1,
+        avatarId: a.avatarId,
+        personality: a.personality,
+        difficulty: a.difficulty,
+      })),
+    ];
+    const match = createMatch({
+      players,
+      seed: nextSeed,
+      variant: {
+        discussionSeconds: config.discussionSeconds,
+        descriptionSeconds: config.descriptionSeconds,
+        votingSeconds: config.votingSeconds,
+        rounds: config.rounds,
+        passDirection: config.passDirection,
+        deckType: config.deckType,
+        specialCards: config.specialCards,
+        murdererCount: config.deckType === 'double_murderer' ? 2 : 1,
+      },
+    });
+    setState(match);
+    setScreen('table');
     setError(null);
+    setRecordedResult(false);
+  }
+
+  function resume() {
+    const save = loadSave();
+    if (!save) return;
+    setConfig(save.config);
+    setState(save.state);
+    setScreen('table');
+    setError(null);
+    setRecordedResult(save.state.phase === 'result');
   }
 
   function onAction(action: Action) {
     if (!state) return;
-    const result = applyAction(state, HUMAN_ID, action);
+    const result = applyAction(state, HUMAN_ID, action, Date.now());
     if (!result.ok) {
       setError(result.error);
       return;
     }
     setError(null);
-    setState(runBots(result.state));
+    setState(tick(result.state, Date.now()));
   }
 
-  if (!state || !view) {
+  function manualSave() {
+    if (!state) return;
+    autosave({ savedAt: Date.now(), config, humanId: HUMAN_ID, state });
+    setHasSave(true);
+    setError('Game saved.');
+  }
+
+  if (screen === 'lobby' || !state || !view) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-16">
-        <h1
-          className="text-4xl font-extrabold"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          Solo Mode
-        </h1>
-        <p className="text-[var(--fog)]">
-          Play a full round against scripted witnesses. Same rules engine as multiplayer.
-        </p>
-        <label className="flex flex-col gap-2 text-sm">
-          Table size
-          <select
-            className="bg-[var(--bg-mist)] px-3 py-3"
-            value={playerCount}
-            onChange={(e) => setPlayerCount(Number(e.target.value))}
-          >
-            {[4, 5, 6, 7, 8, 9].map((n) => (
-              <option key={n} value={n}>
-                {n} players (you + {n - 1} bots)
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={start}
-          className="bg-[var(--ember)] px-6 py-4 font-semibold text-[#1a0f0a]"
-        >
-          Start night
-        </button>
-      </div>
+      <SoloLobby
+        config={config}
+        onChange={setConfig}
+        roster={roster}
+        stats={stats}
+        hasSave={hasSave}
+        onStart={start}
+        onResume={resume}
+        historyCount={historyCount}
+      />
     );
   }
 
   return (
     <>
-      <GameTable view={view} selfId={HUMAN_ID} onAction={onAction} statusMessage={error} />
-      {view.public.phase === 'result' && (
-        <div className="mx-auto max-w-3xl px-4 pb-12">
-          <button
-            type="button"
-            className="border border-[var(--fog)] px-4 py-3"
-            onClick={() => setState(null)}
-          >
-            Play again
-          </button>
-        </div>
-      )}
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 px-4 pt-4">
+        <button
+          type="button"
+          className="text-sm text-[var(--fog)] hover:text-[var(--ember-hot)]"
+          onClick={() => {
+            manualSave();
+            setScreen('lobby');
+            setState(null);
+          }}
+        >
+          ← Lobby
+        </button>
+        <button
+          type="button"
+          className="border border-[var(--line)] px-3 py-1.5 text-xs uppercase tracking-wide"
+          onClick={manualSave}
+        >
+          Save
+        </button>
+      </div>
+      <GameTable
+        view={view}
+        selfId={HUMAN_ID}
+        onAction={onAction}
+        statusMessage={error}
+        now={now}
+        onPlayAgain={start}
+        onBackLobby={() => {
+          setScreen('lobby');
+          setState(null);
+        }}
+      />
     </>
   );
 }

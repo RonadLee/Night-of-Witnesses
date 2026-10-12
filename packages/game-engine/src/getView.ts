@@ -7,9 +7,7 @@ function legalActions(state: MatchState, playerId: string): Action['type'][] {
 
   if (state.phase === 'role_assignment') {
     const current = state.players[state.currentSeat];
-    if (current?.id === playerId && me.hand.length === 2) {
-      return ['keep_card'];
-    }
+    if (current?.id === playerId && me.hand.length === 2) return ['keep_card'];
     return [];
   }
 
@@ -30,25 +28,35 @@ function legalActions(state: MatchState, playerId: string): Action['type'][] {
 
   if (state.phase === 'discussion') {
     const list: Action['type'][] = ['end_discussion'];
-    if (state.variant.speech === 'gestures-only') {
-      list.push('gesture');
-    } else if (!me.isSilenced) {
-      list.push('chat');
-    }
+    if (state.variant.speech === 'gestures-only') list.push('gesture');
+    else if (!me.isSilenced) list.push('chat');
     return list;
   }
 
-  if (state.phase === 'voting') {
-    if (!me.hasVoted) return ['cast_vote'];
-    return [];
-  }
-
+  if (state.phase === 'voting' && !me.hasVoted) return ['cast_vote'];
   return [];
+}
+
+function playerStatus(state: MatchState, playerId: string): string {
+  const p = state.players.find((x) => x.id === playerId);
+  return p?.status ?? 'Waiting';
 }
 
 export function getView(state: MatchState, playerId: string): PlayerMatchView {
   const me = state.players.find((p) => p.id === playerId);
   const current = state.currentSeat >= 0 ? state.players[state.currentSeat] : null;
+
+  let voteTallies: Record<string, number> | null = null;
+  let revealedRoles: Record<string, import('@now/game-types').RoleId> | null = null;
+  if (state.phase === 'result') {
+    voteTallies = {};
+    for (const targetId of Object.values(state.votes)) {
+      voteTallies[targetId] = (voteTallies[targetId] ?? 0) + 1;
+    }
+    revealedRoles = Object.fromEntries(
+      state.players.filter((p) => p.role).map((p) => [p.id, p.role!]),
+    );
+  }
 
   const publicView: MatchPublicView = {
     phase: state.phase,
@@ -62,6 +70,11 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
       hasVoted: p.hasVoted,
       isSilenced: p.isSilenced,
       isLocked: p.isLocked,
+      avatarId: p.avatarId,
+      personality: p.personality,
+      difficulty: p.difficulty,
+      status: playerStatus(state, p.id),
+      currentAction: p.currentAction,
     })),
     currentPlayerId: current?.id ?? null,
     phaseEndsAt: state.phaseEndsAt,
@@ -70,11 +83,16 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
       (r) => !r.privateTo || r.privateTo === playerId,
     ),
     chat: state.chat,
+    activity: state.activity,
+    passHistory: state.passHistory,
+    voteTallies,
     winnerSide: state.winnerSide,
     lockedPlayerId: state.lockedPlayerId,
+    revealedRoles,
     scores: state.scores,
     variant: state.variant,
     guestRoomPeeked: state.guestRoomPeeked,
+    aiReasoning: state.phase === 'result' ? state.aiReasoning : [],
   };
 
   const privateView: MatchPrivateView = {
@@ -85,6 +103,7 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
     doctorResult: state.doctorResults[playerId] ?? null,
     detectiveReveal: state.detectiveReveals[playerId] ?? null,
     legalActions: legalActions(state, playerId),
+    suspicion: state.aiMinds[playerId]?.suspicion ?? {},
   };
 
   return { public: publicView, private: privateView };

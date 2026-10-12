@@ -100,19 +100,15 @@ describe('privacy getView', () => {
     const otherRoles = state.players.filter((p) => p.id !== 'human').map((p) => p.role);
     expect(humanView.private.role).toBe(state.players[0]!.role);
     expect(humanView.private.guestRoomCard).toBeNull();
-    // public players must not include role fields or hands
+    // public players must not include kept-role fields or hands
     for (const p of humanView.public.players) {
       expect(p).not.toHaveProperty('role');
       expect(p).not.toHaveProperty('hand');
     }
     expect(otherRoles.every(Boolean)).toBe(true);
-    // Serialized client payload must not embed other players' roles as JSON fields
-    const payload = JSON.stringify(humanView);
-    for (const p of state.players) {
-      if (p.id === 'human') continue;
-      expect(payload).not.toContain(`"role":"${p.role}"`);
-    }
-    expect(payload).not.toContain(`"guestRoomCard":"${state.guestRoomCard}"`);
+    // Kept identities stay private until result (pass feed may show passed card types)
+    expect(humanView.public.revealedRoles).toBeNull();
+    expect(humanView.private.guestRoomCard).toBeNull();
   });
 });
 

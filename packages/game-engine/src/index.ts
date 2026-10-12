@@ -1,9 +1,12 @@
-export { createMatch, type CreateMatchOptions } from './createMatch';
-export { applyAction } from './applyAction';
+export { createMatch, type CreateMatchOptions, nextSeatIndex } from './createMatch';
+export { applyAction, forceExpireInformation, forceExpireVoting } from './applyAction';
 export { getView } from './getView';
 export { tick } from './tick';
 export { chooseBotAction, runBots } from './bots';
+export { chooseAiAction, reasoningSummary } from './ai/decide';
+export { buildAiRoster, FLAVOR, PERSONALITIES, type AiProfile } from './ai/roster';
+export { createMind, type AiMind } from './ai/mind';
 export { buildDeck, teamOf, V1_WITNESS_ROLES } from './roles';
 export { createRng, shuffleInPlace, pickRandom } from './rng';
 export type { MatchState, EngineResult, InternalPlayer } from './state';
-export { cloneState, defaultVariant } from './state';
+export { cloneState, defaultVariant, pushActivity } from './state';

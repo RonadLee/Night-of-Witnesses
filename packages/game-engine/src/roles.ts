@@ -14,22 +14,23 @@ export function buildDeck(playerCount: number, variant: MatchVariant, rng: () =>
   }
 
   const deck: RoleId[] = [];
-  const murderers = variant.murdererCount;
-  for (let i = 0; i < murderers; i++) {
-    deck.push('murderer');
-  }
+  let murderers: number = variant.murdererCount;
+  if (variant.deckType === 'double_murderer') murderers = 2;
+  for (let i = 0; i < murderers; i++) deck.push('murderer');
 
-  const useAccomplice = murderers === 1 && playerCount >= 6;
-  if (useAccomplice) {
-    deck.push('accomplice');
-  }
+  const useAccomplice =
+    murderers === 1 && playerCount >= 6 && variant.deckType !== 'witness_heavy';
+  if (useAccomplice) deck.push('accomplice');
 
-  // playerCount seated roles + 1 guest leftover
   const needed = playerCount + 1;
   let witnessSlots = needed - deck.length;
   let wi = 0;
+  const pool =
+    variant.specialCards && variant.deckType === 'witness_heavy'
+      ? ([...V1_WITNESS_ROLES, 'doctor', 'detective'] as RoleId[])
+      : V1_WITNESS_ROLES;
   while (witnessSlots > 0) {
-    deck.push(V1_WITNESS_ROLES[wi % V1_WITNESS_ROLES.length]!);
+    deck.push(pool[wi % pool.length]!);
     wi++;
     witnessSlots--;
   }

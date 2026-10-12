@@ -8,10 +8,11 @@ A browser social-deduction game (4–9 players) with **Solo** (vs bots) and **Mu
 | --- | --- |
 | Web UI | Next.js 15 + Tailwind CSS 4 |
 | Rules | `@now/game-engine` (TypeScript + Vitest) |
+| Solo AI | Personalities + difficulty + suspicion memory |
 | Multiplayer | Colyseus WebSocket rooms |
 | Hosting | Vercel (web) + Railway/Fly/Docker (game server) |
 
-See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for frozen rules.
+See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for frozen rules and [docs/SOLO_TESTING_REPORT.md](docs/SOLO_TESTING_REPORT.md) for Solo Mode QA.
 
 ## Prerequisites
 

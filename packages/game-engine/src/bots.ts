@@ -1,95 +1,23 @@
-import type { Action, RoleId } from '@now/game-types';
+import { chooseAiAction } from './ai/decide';
 import { applyAction } from './applyAction';
 import { getView } from './getView';
-import { createRng, pickRandom } from './rng';
 import type { MatchState } from './state';
+import { tick } from './tick';
 
-const ALL_ROLES: RoleId[] = [
-  'murderer',
-  'accomplice',
-  'doctor',
-  'detective',
-  'spy',
-  'priest',
-];
-
-export function chooseBotAction(state: MatchState, playerId: string, now = Date.now()): Action | null {
-  const view = getView(state, playerId);
-  const legal = view.private.legalActions;
-  if (legal.length === 0) return null;
-
-  const rng = createRng(state.seed + now + playerId.length * 17);
-  const others = state.players.filter((p) => p.id !== playerId);
-
-  if (legal.includes('keep_card')) {
-    // Murderer-leaning: prefer keeping murderer if in hand
-    const hand = view.private.hand;
-    const murderIdx = hand.findIndex((r) => r === 'murderer');
-    if (murderIdx === 0 || murderIdx === 1) {
-      return { type: 'keep_card', keepIndex: murderIdx };
-    }
-    return { type: 'keep_card', keepIndex: rng() < 0.5 ? 0 : 1 };
-  }
-
-  if (legal.includes('announce_sighting')) {
-    const through = pickRandom(others, rng);
-    let claimed: RoleId = pickRandom(ALL_ROLES, rng);
-    // Witnesses slightly prefer truth-ish: claim a role that exists in the match often
-    if (view.private.role === 'murderer' || view.private.role === 'accomplice') {
-      claimed = pickRandom(['doctor', 'detective', 'spy', 'priest'], rng);
-    }
-    return {
-      type: 'announce_sighting',
-      claimedRole: claimed,
-      claimedThroughPlayerId: through.id,
-    };
-  }
-
-  if (legal.includes('use_spy') && rng() < 0.7) {
-    return { type: 'use_spy' };
-  }
-  if (legal.includes('use_doctor') && rng() < 0.5) {
-    return { type: 'use_doctor', targetPlayerId: pickRandom(others, rng).id };
-  }
-  if (legal.includes('use_detective') && rng() < 0.5) {
-    return { type: 'use_detective', targetPlayerId: pickRandom(others, rng).id };
-  }
-  if (legal.includes('use_priest') && rng() < 0.4) {
-    return { type: 'use_priest', targetPlayerId: pickRandom(others, rng).id };
-  }
-  if (legal.includes('skip_ability')) {
-    return { type: 'skip_ability' };
-  }
-
-  if (legal.includes('chat')) {
-    return { type: 'chat', text: pickRandom(['Suspicious…', 'I trust the Doctor.', 'Vote carefully.'], rng) };
-  }
-  if (legal.includes('gesture')) {
-    return { type: 'gesture', gestureId: pickRandom(['point', 'shrug', 'nod', 'deny'], rng) };
-  }
-
-  if (legal.includes('cast_vote')) {
-    // Murderer avoids voting for self; prefer random other. Witnesses random.
-    const candidates =
-      view.private.role === 'murderer'
-        ? others
-        : state.players.filter((p) => p.id !== playerId || rng() < 0.05);
-    const pool = candidates.length ? candidates : others;
-    return { type: 'cast_vote', targetPlayerId: pickRandom(pool, rng).id };
-  }
-
-  if (legal.includes('end_discussion')) {
-    return null; // bots don't force end; timer/human does
-  }
-
-  return null;
+/** @deprecated Prefer chooseAiAction — kept for compatibility. */
+export function chooseBotAction(state: MatchState, playerId: string, now = Date.now()) {
+  return chooseAiAction(state, playerId, now);
 }
 
-/** Run bot turns until a human must act or the phase is waiting (discussion/voting partial). */
+/**
+ * Fast-forward bots until a human must act (or discussion/result).
+ * Used by tests and optional instant-sim; Solo UI prefers `tick` pacing.
+ */
 export function runBots(state: MatchState, now = Date.now(), maxSteps = 200): MatchState {
   let current = state;
   for (let i = 0; i < maxSteps; i++) {
-    current = tickBotsOnce(current, now + i);
+    current = { ...current, nextBotActAt: now + i };
+    current = tick(current, now + i + 1);
     const waitingHuman = current.players.some((p) => {
       if (p.isBot) return false;
       return getView(current, p.id).private.legalActions.some(
@@ -100,22 +28,23 @@ export function runBots(state: MatchState, now = Date.now(), maxSteps = 200): Ma
     if (current.phase === 'result') break;
     if (current.phase === 'discussion') break;
     const anyBotLegal = current.players.some(
-      (p) => p.isBot && chooseBotAction(current, p.id, now + i),
+      (p) => p.isBot && chooseAiAction(current, p.id, now + i),
     );
-    if (!anyBotLegal) break;
-  }
-  return current;
-}
+    if (!anyBotLegal && current.phase !== 'voting') break;
 
-function tickBotsOnce(state: MatchState, now: number): MatchState {
-  let current = state;
-  for (const p of current.players) {
-    if (!p.isBot) continue;
-    const action = chooseBotAction(current, p.id, now);
-    if (!action) continue;
-    if (action.type === 'end_discussion') continue;
-    const result = applyAction(current, p.id, action, now);
-    if (result.ok) current = result.state;
+    // Voting: keep stepping until all bots voted or phase changes
+    if (current.phase === 'voting') {
+      const pendingBot = current.players.some((p) => p.isBot && !p.hasVoted);
+      if (!pendingBot) break;
+      for (const p of current.players) {
+        if (!p.isBot || p.hasVoted) continue;
+        const action = chooseAiAction(current, p.id, now + i);
+        if (action) {
+          const r = applyAction(current, p.id, action, now + i);
+          if (r.ok) current = r.state;
+        }
+      }
+    }
   }
   return current;
 }

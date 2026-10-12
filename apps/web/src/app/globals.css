@@ -1,7 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
 @import 'tailwindcss';
 
-:root {
+:root,
+html[data-theme='dark'] {
   --bg-deep: #0b1210;
   --bg-mist: #15201c;
   --ember: #c45c26;
@@ -14,6 +15,41 @@
   --line: rgba(143, 168, 154, 0.28);
   --font-display: 'Syne', sans-serif;
   --font-body: 'Figtree', sans-serif;
+}
+
+html[data-theme='light'] {
+  --bg-deep: #e7efe9;
+  --bg-mist: #f4f8f5;
+  --ember: #b34d1c;
+  --ember-hot: #c45c26;
+  --fog: #3d534a;
+  --fog-dim: #5c7368;
+  --paper: #14201b;
+  --danger: #9b2c2c;
+  --panel: rgba(255, 255, 255, 0.72);
+  --line: rgba(60, 90, 78, 0.28);
+}
+
+html[data-theme='light'] body {
+  background:
+    radial-gradient(1000px 600px at 80% -10%, rgba(196, 92, 38, 0.18), transparent 55%),
+    radial-gradient(800px 500px at 10% 20%, rgba(60, 90, 78, 0.18), transparent 50%),
+    linear-gradient(180deg, #eef5f0 0%, #e7efe9 50%, #f3ebe4 100%);
+}
+
+.field {
+  background: var(--bg-mist);
+  border: 1px solid var(--line);
+  padding: 0.75rem 0.85rem;
+  color: var(--paper);
+}
+
+.seat-card {
+  animation: rise-in 0.45s ease-out both;
+}
+
+.card-tile {
+  touch-action: manipulation;
 }
 
 * {
