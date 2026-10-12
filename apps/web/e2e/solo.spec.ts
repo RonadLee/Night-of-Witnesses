@@ -7,27 +7,37 @@ test('home offers solo and multiplayer', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Multiplayer Mode' })).toBeVisible();
 });
 
-test('solo lobby shows AI roster then can complete a round', async ({ page }) => {
+test('solo uses shared lobby/table and can complete a round', async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto('/solo?fast=1');
-  await expect(page.getByRole('heading', { name: 'Solo Lobby' })).toBeVisible();
-  await expect(page.getByText('AI roster')).toBeVisible();
-  await page.getByRole('button', { name: 'Start night' }).click();
-  await expect(page.getByRole('heading', { name: /Role Assignment|Description Phase/i })).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
+  await expect(page.getByText('Solo', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Start match' }).click();
+  await expect(page.getByRole('heading', { name: /Card Passing|Description Phase/i })).toBeVisible({
     timeout: 10_000,
   });
 
   for (let step = 0; step < 120; step++) {
-    if (await page.getByText(/Witnesses win|Murderer side wins/i).isVisible().catch(() => false)) {
+    if (
+      await page
+        .getByRole('heading', { name: /Witnesses win|Murderer side wins/i })
+        .isVisible()
+        .catch(() => false)
+    ) {
       break;
     }
 
-    const keep = page.getByRole('button', { name: /^Keep / });
-    if (await keep.count()) {
-      await keep.first().click();
+    const passCard = page.getByRole('button', { name: /Pass this card/i });
+    if (await passCard.count()) {
+      await passCard.first().click();
+      const chain = page.getByRole('button', { name: /Pass to .* \(chain\)/i });
+      if (await chain.isVisible().catch(() => false)) {
+        await chain.click();
+      }
       const confirm = page.getByRole('button', { name: 'Confirm' });
-      await expect(confirm).toBeVisible({ timeout: 3_000 });
-      await confirm.click();
+      if (await confirm.isVisible().catch(() => false)) {
+        await confirm.click();
+      }
       continue;
     }
 
@@ -46,11 +56,10 @@ test('solo lobby shows AI roster then can complete a round', async ({ page }) =>
       continue;
     }
 
-    const voteLabel = page.getByText('Vote to lock in Boiler Room');
-    if (await voteLabel.isVisible().catch(() => false)) {
-      const voteButtons = voteLabel.locator('..').getByRole('button');
-      if (await voteButtons.count()) {
-        await voteButtons.first().click();
+    if (await page.getByText('Click any seat at the table to cast your vote.').isVisible().catch(() => false)) {
+      const seats = page.locator('.circular-seat');
+      if (await seats.count()) {
+        await seats.nth(1).click();
         continue;
       }
     }

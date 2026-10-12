@@ -8,9 +8,10 @@ Context7: used React docs via `https://context7.com/websites/react_dev/llms.txt`
 
 | Requirement | Status |
 | --- | --- |
+| Shared `MatchLobby` + circular `GameTable` for Solo and Multiplayer | Done |
 | Solo lobby (AI count, difficulty, deck, timers, pass dir, rounds, special cards) | Done |
 | AI roster (avatar, nickname, personality, difficulty) | Done |
-| Shared table UI with Multiplayer (`GameTable`) | Done |
+| Drag/tap card pass + confirm dialog (same as MP) | Done |
 | AI card passing + live feed | Done |
 | Human pass confirm modal + drag/tap cards | Done |
 | Description / discussion / voting timers | Done |

@@ -10,9 +10,10 @@ import {
   tick,
   type MatchState,
 } from '@now/game-engine';
-import type { Action, PlayerMatchView, SoloLobbyConfig } from '@now/game-types';
+import type { Action, AiDifficulty, DeckType, PassDirection, PlayerMatchView, SoloLobbyConfig } from '@now/game-types';
+import { MIN_PLAYERS, MAX_PLAYERS } from '@now/game-types';
 import { GameTable } from '@/components/GameTable';
-import { SoloLobby } from '@/components/game/SoloLobby';
+import { MatchLobby } from '@/components/match/MatchLobby';
 import {
   autosave,
   clearSave,
@@ -27,7 +28,7 @@ import {
 
 const HUMAN_ID = 'human';
 
-function leagueDifficulty(league: SoloLobbyConfig['campaignLeague']): SoloLobbyConfig['difficulty'] {
+function leagueDifficulty(league: SoloLobbyConfig['campaignLeague']): AiDifficulty {
   switch (league) {
     case 'beginner':
       return 'easy';
@@ -62,7 +63,6 @@ export function SoloClient() {
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState(loadStats);
   const [hasSave, setHasSave] = useState(false);
-  const [historyCount, setHistoryCount] = useState(0);
   const [now, setNow] = useState(0);
   const [recordedResult, setRecordedResult] = useState(false);
 
@@ -70,7 +70,6 @@ export function SoloClient() {
     ? leagueDifficulty(config.campaignLeague)
     : config.difficulty;
 
-  // Stable seed on client only — avoids SSR/client roster name mismatches
   const roster = useMemo(
     () => buildAiRoster(config.aiCount, effectiveDifficulty, seed),
     [config.aiCount, effectiveDifficulty, seed],
@@ -84,11 +83,9 @@ export function SoloClient() {
   useEffect(() => {
     setSeed(42);
     setHasSave(Boolean(loadSave()));
-    setHistoryCount(loadHistory().length);
     setStats(loadStats());
   }, []);
 
-  // Live clock + AI pacing (faster interval in e2e/fast mode)
   useEffect(() => {
     if (screen !== 'table' || !state || state.phase === 'result') return;
     const id = window.setInterval(() => {
@@ -97,7 +94,6 @@ export function SoloClient() {
       setState((prev) => {
         if (!prev) return prev;
         let next = tick(prev, t);
-        // In fast mode, step bots more aggressively so e2e can finish
         if (fastMode) {
           for (let i = 0; i < 6; i++) {
             next = tick(next, t + i + 1);
@@ -114,40 +110,32 @@ export function SoloClient() {
     return () => window.clearInterval(id);
   }, [screen, state?.phase, fastMode]);
 
-  // Autosave
   useEffect(() => {
     if (!state || screen !== 'table') return;
-    const blob: SoloSaveBlob = {
-      savedAt: Date.now(),
-      config,
-      humanId: HUMAN_ID,
-      state,
-    };
+    const blob: SoloSaveBlob = { savedAt: Date.now(), config, humanId: HUMAN_ID, state };
     autosave(blob);
     setHasSave(true);
   }, [state, screen, config]);
 
-  // Record stats on result once
   useEffect(() => {
     if (!state || state.phase !== 'result' || recordedResult) return;
+    const role = state.players.find((p) => p.id === HUMAN_ID)?.role;
     const won =
-      (state.winnerSide === 'witnesses' &&
-        state.players.find((p) => p.id === HUMAN_ID)?.role !== 'murderer' &&
-        state.players.find((p) => p.id === HUMAN_ID)?.role !== 'accomplice') ||
-      (state.winnerSide === 'murderers' &&
-        (state.players.find((p) => p.id === HUMAN_ID)?.role === 'murderer' ||
-          state.players.find((p) => p.id === HUMAN_ID)?.role === 'accomplice'));
+      (state.winnerSide === 'witnesses' && role !== 'murderer' && role !== 'accomplice') ||
+      (state.winnerSide === 'murderers' && (role === 'murderer' || role === 'accomplice'));
     const human = state.players.find((p) => p.id === HUMAN_ID);
     const murderer = state.players.find((p) => p.role === 'murderer');
     const votedCorrectly = Boolean(
       human?.voteTargetId && murderer && human.voteTargetId === murderer.id,
     );
-    const nextStats = recordMatchResult({
-      difficulty: effectiveDifficulty,
-      won: Boolean(won),
-      score: state.scores[HUMAN_ID] ?? 0,
-      votedCorrectly,
-    });
+    setStats(
+      recordMatchResult({
+        difficulty: effectiveDifficulty,
+        won: Boolean(won),
+        score: state.scores[HUMAN_ID] ?? 0,
+        votedCorrectly,
+      }),
+    );
     pushHistory({
       at: Date.now(),
       winnerSide: state.winnerSide ?? 'unknown',
@@ -155,8 +143,6 @@ export function SoloClient() {
       league: config.campaignLeague,
       playerCount: state.players.length,
     });
-    setStats(nextStats);
-    setHistoryCount(loadHistory().length);
     setRecordedResult(true);
     clearSave();
     setHasSave(false);
@@ -225,36 +211,68 @@ export function SoloClient() {
     setState(tick(result.state, Date.now()));
   }
 
-  function manualSave() {
-    if (!state) return;
-    autosave({ savedAt: Date.now(), config, humanId: HUMAN_ID, state });
-    setHasSave(true);
-    setError('Game saved.');
-  }
+  const lobbySeats = [
+    {
+      id: HUMAN_ID,
+      name: 'You',
+      seatIndex: 0,
+      avatarId: 'avatar-you',
+      isSelf: true,
+      isHost: true,
+      subtitle: 'Human',
+    },
+    ...roster.map((a, i) => ({
+      id: a.id,
+      name: a.name,
+      seatIndex: i + 1,
+      avatarId: a.avatarId,
+      subtitle: `${a.personality} · ${a.difficulty}`,
+    })),
+  ];
 
   if (screen === 'lobby' || !state || !view) {
     return (
-      <SoloLobby
-        config={config}
-        onChange={setConfig}
-        roster={roster}
-        stats={stats}
-        hasSave={hasSave}
+      <MatchLobby
+        modeLabel="Solo"
+        seats={lobbySeats}
+        minPlayers={MIN_PLAYERS}
+        maxPlayers={MAX_PLAYERS}
+        canStart
+        startLabel="Start match"
         onStart={start}
-        onResume={resume}
-        historyCount={historyCount}
+        error={error}
+        setupSlot={
+          <SetupPanel
+            config={config}
+            onChange={setConfig}
+            statsLine={`${stats.gamesPlayed} games · ${
+              stats.gamesPlayed ? Math.round((stats.wins / stats.gamesPlayed) * 100) : 0
+            }% win · ${loadHistory().length} history`}
+          />
+        }
+        footerSlot={
+          hasSave ? (
+            <button
+              type="button"
+              className="border border-[var(--fog)] px-6 py-4 font-semibold"
+              onClick={resume}
+            >
+              Resume last game
+            </button>
+          ) : null
+        }
       />
     );
   }
 
   return (
     <>
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 px-4 pt-4">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 pt-4">
         <button
           type="button"
           className="text-sm text-[var(--fog)] hover:text-[var(--ember-hot)]"
           onClick={() => {
-            manualSave();
+            autosave({ savedAt: Date.now(), config, humanId: HUMAN_ID, state });
             setScreen('lobby');
             setState(null);
           }}
@@ -264,7 +282,10 @@ export function SoloClient() {
         <button
           type="button"
           className="border border-[var(--line)] px-3 py-1.5 text-xs uppercase tracking-wide"
-          onClick={manualSave}
+          onClick={() => {
+            autosave({ savedAt: Date.now(), config, humanId: HUMAN_ID, state });
+            setError('Game saved.');
+          }}
         >
           Save
         </button>
@@ -282,5 +303,122 @@ export function SoloClient() {
         }}
       />
     </>
+  );
+}
+
+function SetupPanel({
+  config,
+  onChange,
+  statsLine,
+}: {
+  config: SoloLobbyConfig;
+  onChange: (c: SoloLobbyConfig) => void;
+  statsLine: string;
+}) {
+  function patch<K extends keyof SoloLobbyConfig>(key: K, value: SoloLobbyConfig[K]) {
+    onChange({ ...config, [key]: value });
+  }
+  return (
+    <div className="grid gap-3 border border-[var(--line)] bg-[var(--panel)] p-4 sm:grid-cols-2">
+      <p className="sm:col-span-2 text-xs text-[var(--fog-dim)]">{statsLine}</p>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        AI players
+        <select
+          className="field"
+          value={config.aiCount}
+          onChange={(e) => patch('aiCount', Number(e.target.value))}
+        >
+          {[3, 4, 5, 6, 7, 8].map((n) => (
+            <option key={n} value={n}>
+              {n} AI ({n + 1} at table)
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Difficulty
+        <select
+          className="field"
+          value={config.difficulty}
+          onChange={(e) => patch('difficulty', e.target.value as AiDifficulty)}
+        >
+          {(['easy', 'normal', 'hard', 'expert'] as AiDifficulty[]).map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Deck
+        <select
+          className="field"
+          value={config.deckType}
+          onChange={(e) => patch('deckType', e.target.value as DeckType)}
+        >
+          <option value="standard">Standard</option>
+          <option value="double_murderer">Double Murderer</option>
+          <option value="witness_heavy">Witness Heavy</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Pass direction
+        <select
+          className="field"
+          value={config.passDirection}
+          onChange={(e) => patch('passDirection', e.target.value as PassDirection)}
+        >
+          <option value="clockwise">Clockwise</option>
+          <option value="counterclockwise">Counterclockwise</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Description (sec)
+        <input
+          type="number"
+          className="field"
+          min={15}
+          max={120}
+          value={config.descriptionSeconds}
+          onChange={(e) => patch('descriptionSeconds', Number(e.target.value))}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Discussion (sec)
+        <input
+          type="number"
+          className="field"
+          min={30}
+          max={600}
+          value={config.discussionSeconds}
+          onChange={(e) => patch('discussionSeconds', Number(e.target.value))}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Voting (sec)
+        <input
+          type="number"
+          className="field"
+          min={5}
+          max={60}
+          value={config.votingSeconds}
+          onChange={(e) => patch('votingSeconds', Number(e.target.value))}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+        Rounds
+        <select
+          className="field"
+          value={config.rounds}
+          onChange={(e) => patch('rounds', Number(e.target.value))}
+        >
+          {[1, 2, 3].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
   );
 }

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Client, Room } from 'colyseus.js';
 import type { Action, PlayerMatchView } from '@now/game-types';
+import { MAX_PLAYERS, MIN_PLAYERS } from '@now/game-types';
 import { GameTable } from '@/components/GameTable';
+import { MatchLobby, type LobbySeat } from '@/components/match/MatchLobby';
 import { gameServerUrl } from '@/lib/colyseus';
 
 interface LobbyState {
@@ -36,6 +38,7 @@ export function MultiplayerClient() {
   const [view, setView] = useState<PlayerMatchView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const roomRef = useRef<Room | null>(null);
 
   useEffect(() => {
@@ -44,6 +47,12 @@ export function MultiplayerClient() {
       roomRef.current?.leave();
     };
   }, []);
+
+  useEffect(() => {
+    if (!view || view.public.phase === 'result') return;
+    const id = window.setInterval(() => setNow(Date.now()), 400);
+    return () => window.clearInterval(id);
+  }, [view?.public.phase]);
 
   const attachRoom = useCallback((room: Room, pid: string) => {
     roomRef.current = room;
@@ -81,7 +90,6 @@ export function MultiplayerClient() {
     setError(null);
     try {
       const client = new Client(gameServerUrl());
-      // Join by filtering metadata code via room listing, or joinOrCreate with code
       const rooms = await client.getAvailableRooms('game');
       const match = rooms.find(
         (r) => String(r.metadata?.code ?? '').toUpperCase() === joinCode.trim().toUpperCase(),
@@ -107,89 +115,105 @@ export function MultiplayerClient() {
 
   if (view && playerId) {
     return (
-      <GameTable view={view} selfId={playerId} onAction={onAction} statusMessage={error} />
+      <GameTable
+        view={view}
+        selfId={playerId}
+        onAction={onAction}
+        statusMessage={error}
+        now={now}
+      />
     );
   }
 
   if (lobby && playerId) {
     const isHost = lobby.hostPlayerId === playerId;
+    const seats: LobbySeat[] = lobby.seats.map((s, i) => ({
+      id: s.playerId,
+      name: s.name,
+      seatIndex: s.seatIndex,
+      avatarId: `avatar-${(i % 8) + 1}`,
+      isHost: s.playerId === lobby.hostPlayerId,
+      connected: s.connected,
+      isSelf: s.playerId === playerId,
+      subtitle: s.connected ? 'Connected' : 'Reconnecting',
+    }));
+
     return (
-      <div className="mx-auto flex max-w-lg flex-col gap-5 px-4 py-12">
-        <h1 className="text-4xl font-extrabold" style={{ fontFamily: 'var(--font-display)' }}>
-          Lobby
-        </h1>
-        <p className="text-2xl tracking-[0.2em] text-[var(--ember-hot)]">{lobby.code}</p>
-        <ul className="space-y-2">
-          {lobby.seats.map((s) => (
-            <li key={s.playerId} className="border border-[var(--line)] px-3 py-2">
-              {s.name}
-              {s.playerId === lobby.hostPlayerId ? ' · host' : ''}
-              {!s.connected ? ' · reconnecting…' : ''}
-            </li>
-          ))}
-        </ul>
-        <p className="text-sm text-[var(--fog)]">
-          {lobby.seats.length}/{lobby.maxPlayers} seated · need at least {lobby.minPlayers}
-        </p>
-        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-        {isHost && (
-          <button
-            type="button"
-            className="bg-[var(--ember)] px-6 py-4 font-semibold text-[#1a0f0a] disabled:opacity-40"
-            disabled={lobby.seats.length < lobby.minPlayers}
-            onClick={startMatch}
-          >
-            Start match
-          </button>
-        )}
-        {!isHost && <p className="text-[var(--fog-dim)]">Waiting for host to start…</p>}
-      </div>
+      <MatchLobby
+        modeLabel="Multiplayer"
+        roomCode={lobby.code}
+        seats={seats}
+        minPlayers={lobby.minPlayers}
+        maxPlayers={lobby.maxPlayers}
+        canStart={isHost}
+        startLabel="Start match"
+        onStart={startMatch}
+        waitingMessage={isHost ? null : 'Waiting for host to start…'}
+        error={error}
+      />
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-16">
-      <h1 className="text-4xl font-extrabold" style={{ fontFamily: 'var(--font-display)' }}>
-        Multiplayer
-      </h1>
-      <p className="text-[var(--fog)]">
-        Create a room code for friends, or join one. Requires the game server running on port 2567.
-      </p>
-      <label className="flex flex-col gap-2 text-sm">
-        Display name
-        <input
-          className="bg-[var(--bg-mist)] px-3 py-3"
-          value={name}
-          maxLength={24}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        onClick={createRoom}
-        className="bg-[var(--ember)] px-6 py-4 font-semibold text-[#1a0f0a]"
-      >
-        Create room
-      </button>
-      <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-6">
-        <label className="flex flex-col gap-2 text-sm">
-          Room code
-          <input
-            className="bg-[var(--bg-mist)] px-3 py-3 uppercase tracking-[0.2em]"
-            value={joinCode}
-            maxLength={8}
-            onChange={(e) => setJoinCode(e.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={joinRoom}
-          className="border border-[var(--fog)] px-6 py-4 font-semibold"
-        >
-          Join room
-        </button>
-      </div>
-      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-    </div>
+    <MatchLobby
+      modeLabel="Multiplayer"
+      seats={
+        playerId
+          ? [
+              {
+                id: playerId,
+                name: name || 'Guest',
+                seatIndex: 0,
+                avatarId: 'avatar-you',
+                isSelf: true,
+                isHost: true,
+                subtitle: 'Ready to create or join',
+              },
+            ]
+          : []
+      }
+      minPlayers={MIN_PLAYERS}
+      maxPlayers={MAX_PLAYERS}
+      canStart={false}
+      onStart={() => undefined}
+      waitingMessage="Create or join a room to fill the table."
+      error={error}
+      setupSlot={
+        <div className="grid gap-3 border border-[var(--line)] bg-[var(--panel)] p-4">
+          <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+            Display name
+            <input
+              className="field"
+              value={name}
+              maxLength={24}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={createRoom}
+            className="bg-[var(--ember)] px-6 py-4 font-semibold text-[#1a0f0a]"
+          >
+            Create room
+          </button>
+          <label className="flex flex-col gap-1 text-sm text-[var(--fog)]">
+            Room code
+            <input
+              className="field uppercase tracking-[0.2em]"
+              value={joinCode}
+              maxLength={8}
+              onChange={(e) => setJoinCode(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={joinRoom}
+            className="border border-[var(--fog)] px-6 py-4 font-semibold"
+          >
+            Join room
+          </button>
+        </div>
+      }
+    />
   );
 }

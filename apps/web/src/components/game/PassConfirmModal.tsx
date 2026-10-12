@@ -8,8 +8,9 @@ interface Props {
   passToName: string;
   passToId: string;
   players: Array<{ id: string; name: string }>;
-  onConfirm: (reason: string) => void;
+  onConfirm: (reason: string, passToId: string) => void;
   onCancel: () => void;
+  allowSelectPassTo?: boolean;
 }
 
 export function PassConfirmModal({
@@ -19,6 +20,7 @@ export function PassConfirmModal({
   players,
   onConfirm,
   onCancel,
+  allowSelectPassTo = false,
 }: Props) {
   return (
     <div
@@ -32,10 +34,14 @@ export function PassConfirmModal({
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
-          onConfirm(String(fd.get('reason') ?? '').trim());
+          onConfirm(String(fd.get('reason') ?? '').trim(), String(fd.get('passTo') ?? passToId));
         }}
       >
-        <h3 id="pass-confirm-title" className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
+        <h3
+          id="pass-confirm-title"
+          className="text-xl font-bold"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
           Confirm pass
         </h3>
         <p className="mt-4 text-sm text-[var(--fog)]">Selected Card</p>
@@ -45,19 +51,18 @@ export function PassConfirmModal({
           Pass To
           <select
             name="passTo"
-            className="bg-[var(--bg-deep)] px-3 py-2"
+            className="field"
             defaultValue={passToId}
-            disabled
+            disabled={!allowSelectPassTo}
           >
             {players.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
-            <option value="guest_room">Guest Room</option>
           </select>
           <span className="text-xs text-[var(--fog-dim)]">
-            Pass chain targets {passToName} (rules-fixed).
+            Pass &quot;{roleLabel(card)}&quot; card to {passToName}.
           </span>
         </label>
 
@@ -67,13 +72,16 @@ export function PassConfirmModal({
             name="reason"
             rows={2}
             maxLength={120}
-            className="bg-[var(--bg-deep)] px-3 py-2"
+            className="field"
             placeholder="Why this card?"
           />
         </label>
 
         <div className="mt-5 flex gap-2">
-          <button type="submit" className="flex-1 bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]">
+          <button
+            type="submit"
+            className="flex-1 bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]"
+          >
             Confirm
           </button>
           <button

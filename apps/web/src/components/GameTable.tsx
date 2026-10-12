@@ -3,9 +3,10 @@
 import { useMemo, useState } from 'react';
 import type { Action, PlayerMatchView, RoleId } from '@now/game-types';
 import { roleLabel } from '@/lib/roleLabels';
-import { ActivityFeed } from '@/components/game/ActivityFeed';
+import { CircularTable } from '@/components/match/CircularTable';
+import { MatchChat } from '@/components/match/MatchChat';
+import { MatchTimer } from '@/components/match/MatchTimer';
 import { PassConfirmModal } from '@/components/game/PassConfirmModal';
-import { PlayerSeatCard } from '@/components/game/PlayerSeatCard';
 import { ResultPanel } from '@/components/game/ResultPanel';
 
 const V1_ROLES: RoleId[] = [
@@ -39,36 +40,67 @@ export function GameTable({
   const { public: pub, private: priv } = view;
   const legal = new Set(priv.legalActions);
   const others = pub.players.filter((p) => p.id !== selfId);
-  const [pendingKeep, setPendingKeep] = useState<0 | 1 | null>(null);
-  const [dragOver, setDragOver] = useState(false);
+  const [passCardIndex, setPassCardIndex] = useState<0 | 1 | null>(null);
+  const [passToId, setPassToId] = useState<string | null>(null);
+  const [dragOverSeatId, setDragOverSeatId] = useState<string | null>(null);
+  const [selectedCard, setSelectedCard] = useState<0 | 1 | null>(null);
 
-  const timerLabel =
-    pub.phaseEndsAt != null ? formatRemaining(pub.phaseEndsAt - now) : null;
-
-  const passTarget = useMemo(() => {
+  const chainTarget = useMemo(() => {
     if (pub.phase !== 'role_assignment' || !pub.currentPlayerId) return null;
     const cur = pub.players.find((p) => p.id === pub.currentPlayerId);
     if (!cur) return null;
     const dir = pub.variant.passDirection === 'counterclockwise' ? -1 : 1;
     const nextIdx = (cur.seatIndex + dir + pub.players.length) % pub.players.length;
     const next = pub.players.find((p) => p.seatIndex === nextIdx);
-    // If everyone else already acted, guest room — approximate: if only one without role left it's current
-    const unfinished = pub.players.filter((p) => p.status === 'Selecting card' || p.id === cur.id);
-    if (unfinished.length <= 1 && priv.hand.length === 2) {
+    const selecting = pub.players.filter(
+      (p) => p.status === 'Selecting card' || p.id === cur.id,
+    );
+    if (selecting.length <= 1 && priv.hand.length === 2) {
       return { id: 'guest_room', name: 'Guest Room' };
     }
     return next ? { id: next.id, name: next.name } : { id: 'guest_room', name: 'Guest Room' };
   }, [pub, priv.hand.length]);
 
-  function confirmKeep(reason: string) {
-    if (pendingKeep === null) return;
-    onAction({ type: 'keep_card', keepIndex: pendingKeep, passReason: reason || undefined });
-    setPendingKeep(null);
+  const dropEnabled = legal.has('keep_card') && priv.hand.length === 2;
+  const voteEnabled = legal.has('cast_vote');
+
+  function openPassConfirm(passIndex: 0 | 1, toId?: string) {
+    setPassCardIndex(passIndex);
+    setPassToId(toId ?? chainTarget?.id ?? others[0]?.id ?? 'guest_room');
   }
 
+  function confirmPass(reason: string, toId: string) {
+    if (passCardIndex === null) return;
+    // Passing card at passCardIndex means we keep the other
+    const keepIndex = (1 - passCardIndex) as 0 | 1;
+    onAction({
+      type: 'keep_card',
+      keepIndex,
+      passReason: reason || `Pass to ${toId}`,
+    });
+    setPassCardIndex(null);
+    setPassToId(null);
+    setSelectedCard(null);
+  }
+
+  function onSeatClick(seatPlayerId: string) {
+    if (voteEnabled) {
+      onAction({ type: 'cast_vote', targetPlayerId: seatPlayerId });
+      return;
+    }
+    if (dropEnabled && selectedCard !== null && seatPlayerId !== selfId) {
+      openPassConfirm(selectedCard, seatPlayerId);
+    }
+  }
+
+  const passToName =
+    passToId === 'guest_room'
+      ? 'Guest Room'
+      : pub.players.find((p) => p.id === passToId)?.name ?? chainTarget?.name ?? 'Player';
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] pb-4">
+    <div className="match-shell mx-auto flex w-full max-w-5xl flex-col gap-4 px-3 py-4 md:px-6">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] pb-3">
         <div>
           <p className="text-xs tracking-[0.18em] text-[var(--fog-dim)] uppercase">
             Night of Witnesses
@@ -79,17 +111,15 @@ export function GameTable({
           >
             {phaseTitle(pub.phase)}
           </h2>
-        </div>
-        <div className="text-right text-sm text-[var(--fog)]">
-          {timerLabel && (
-            <p className="text-lg font-semibold text-[var(--ember-hot)]" aria-live="polite">
-              {timerLabel}
-            </p>
-          )}
-          <p>
+          <p className="text-sm text-[var(--fog)]">
             Round {pub.round}/{pub.maxRounds}
           </p>
         </div>
+        <MatchTimer
+          phaseEndsAt={pub.phaseEndsAt}
+          now={now}
+          phaseLabel={phaseTitle(pub.phase)}
+        />
       </header>
 
       {statusMessage && (
@@ -98,43 +128,81 @@ export function GameTable({
         </p>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {pub.players.map((p) => (
-          <PlayerSeatCard
-            key={p.id}
-            player={p}
-            isSelf={p.id === selfId}
-            isCurrent={pub.currentPlayerId === p.id}
-          />
-        ))}
-      </section>
+      <CircularTable
+        players={pub.players}
+        selfId={selfId}
+        currentPlayerId={pub.currentPlayerId}
+        dropEnabled={dropEnabled}
+        voteEnabled={voteEnabled}
+        dragOverSeatId={dragOverSeatId}
+        onSeatDragOver={setDragOverSeatId}
+        onSeatDrop={(id) => {
+          if (selectedCard !== null) openPassConfirm(selectedCard, id);
+        }}
+        onSeatClick={onSeatClick}
+      />
 
-      <ActivityFeed events={pub.activity} />
+      {dropEnabled && priv.hand.length === 2 && (
+        <section className="match-hand" aria-label="Your hand">
+          <p className="mb-2 text-sm text-[var(--fog)]">
+            Drag a card onto a seat to pass it, or tap a card then tap a seat. You keep the other
+            card.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {([0, 1] as const).map((idx) => (
+              <button
+                key={idx}
+                type="button"
+                draggable
+                onDragStart={(e) => {
+                  setSelectedCard(idx);
+                  e.dataTransfer.setData('text/pass-index', String(idx));
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => setDragOverSeatId(null)}
+                onClick={() => setSelectedCard(idx)}
+                className={`card-tile flex-1 px-4 py-5 font-semibold transition ${
+                  selectedCard === idx
+                    ? 'bg-[var(--ember-hot)] text-[#1a0f0a] ring-2 ring-[var(--paper)]'
+                    : 'bg-[var(--ember)] text-[#1a0f0a] hover:bg-[var(--ember-hot)]'
+                }`}
+              >
+                {roleLabel(priv.hand[idx]!)}
+                <span className="mt-1 block text-xs font-normal opacity-80">Pass this card</span>
+              </button>
+            ))}
+          </div>
+          {selectedCard !== null && chainTarget && (
+            <button
+              type="button"
+              className="mt-2 border border-[var(--fog)] px-4 py-3 text-sm"
+              onClick={() => openPassConfirm(selectedCard, chainTarget.id)}
+            >
+              Pass to {chainTarget.name} (chain)
+            </button>
+          )}
+        </section>
+      )}
 
-      <section className="border border-[var(--line)] bg-[var(--panel)] px-4 py-4">
+      <section className="border border-[var(--line)] bg-[var(--panel)] px-4 py-3">
         <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Your secrets</p>
         <p className="mt-1 text-lg">
           Role: <strong>{roleLabel(priv.role)}</strong>
         </p>
-        {priv.hand.length > 0 && (
-          <p className="mt-2 text-[var(--fog)]">
-            Hand: {priv.hand.map((r) => roleLabel(r)).join(' · ')}
-          </p>
-        )}
         {priv.doctorResult && (
-          <p className="mt-2 text-sm">
-            Doctor result: {priv.doctorResult.isMurderer ? 'IS Murderer' : 'NOT Murderer'} (
+          <p className="mt-1 text-sm">
+            Doctor: {priv.doctorResult.isMurderer ? 'IS Murderer' : 'NOT Murderer'} (
             {nameOf(pub, priv.doctorResult.targetPlayerId)})
           </p>
         )}
         {priv.detectiveReveal && (
-          <p className="mt-2 text-sm">
+          <p className="mt-1 text-sm">
             Detective: {nameOf(pub, priv.detectiveReveal.targetPlayerId)} passed{' '}
             {roleLabel(priv.detectiveReveal.passedCard)}
           </p>
         )}
         {priv.guestRoomCard && (
-          <p className="mt-2 text-sm">Guest Room peek: {roleLabel(priv.guestRoomCard)}</p>
+          <p className="mt-1 text-sm">Guest Room peek: {roleLabel(priv.guestRoomCard)}</p>
         )}
       </section>
 
@@ -147,22 +215,19 @@ export function GameTable({
             {pub.sightings.map((s, i) => (
               <li key={i} className="border-l-2 border-[var(--ember)] pl-3 text-[var(--fog)]">
                 {s.text ??
-                  `${nameOf(pub, s.fromPlayerId)} saw the ${roleLabel(s.claimedRole)} card pass through ${nameOf(pub, s.claimedThroughPlayerId)}`}
+                  `${nameOf(pub, s.fromPlayerId)} saw ${roleLabel(s.claimedRole)} through ${nameOf(pub, s.claimedThroughPlayerId)}`}
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      {pub.chat.length > 0 && (
-        <section className="max-h-40 overflow-y-auto border border-[var(--line)] px-3 py-2 text-sm">
-          {pub.chat.map((c, i) => (
-            <p key={i} className="text-[var(--fog)]">
-              <strong>{nameOf(pub, c.fromPlayerId)}</strong>: {c.text}
-            </p>
-          ))}
-        </section>
-      )}
+      <MatchChat
+        view={view}
+        selfId={selfId}
+        canChat={legal.has('chat')}
+        onSend={(text) => onAction({ type: 'chat', text })}
+      />
 
       {pub.phase === 'result' && (
         <ResultPanel
@@ -173,41 +238,6 @@ export function GameTable({
       )}
 
       <section className="flex flex-col gap-3">
-        {legal.has('keep_card') && priv.hand.length === 2 && (
-          <div
-            className={`flex flex-col gap-2 rounded-sm border border-dashed p-3 sm:flex-row ${
-              dragOver ? 'border-[var(--ember)] bg-[var(--panel)]' : 'border-[var(--line)]'
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const idx = Number(e.dataTransfer.getData('text/keep-index'));
-              if (idx === 0 || idx === 1) setPendingKeep(idx);
-            }}
-          >
-            <p className="w-full text-sm text-[var(--fog)] sm:basis-full">
-              Tap or drag a card to keep it (the other is passed).
-            </p>
-            {([0, 1] as const).map((idx) => (
-              <button
-                key={idx}
-                type="button"
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData('text/keep-index', String(idx))}
-                className="card-tile flex-1 bg-[var(--ember)] px-4 py-4 font-semibold text-[#1a0f0a] transition hover:bg-[var(--ember-hot)] active:scale-[0.98]"
-                onClick={() => setPendingKeep(idx)}
-              >
-                Keep {roleLabel(priv.hand[idx]!)}
-              </button>
-            ))}
-          </div>
-        )}
-
         {legal.has('announce_sighting') && (
           <SightingForm
             roles={V1_ROLES}
@@ -222,10 +252,9 @@ export function GameTable({
             }
           />
         )}
-
         {legal.has('use_doctor') && (
           <TargetButtons
-            label="Doctor: examine"
+            label="Doctor: examine (or click a seat)"
             players={others}
             onPick={(id) => onAction({ type: 'use_doctor', targetPlayerId: id })}
           />
@@ -262,8 +291,6 @@ export function GameTable({
             Skip ability
           </button>
         )}
-
-        {legal.has('chat') && <ChatBox onSend={(text) => onAction({ type: 'chat', text })} />}
         {legal.has('end_discussion') && (
           <button
             type="button"
@@ -273,24 +300,26 @@ export function GameTable({
             End discussion / go to vote
           </button>
         )}
-
-        {legal.has('cast_vote') && (
-          <TargetButtons
-            label="Vote to lock in Boiler Room"
-            players={pub.players}
-            onPick={(id) => onAction({ type: 'cast_vote', targetPlayerId: id })}
-          />
+        {voteEnabled && (
+          <p className="text-sm text-[var(--fog)]">Click any seat at the table to cast your vote.</p>
         )}
       </section>
 
-      {pendingKeep !== null && passTarget && priv.hand[pendingKeep] && (
+      {passCardIndex !== null && priv.hand[passCardIndex] && (
         <PassConfirmModal
-          card={priv.hand[1 - pendingKeep]!}
-          passToName={passTarget.name}
-          passToId={passTarget.id}
-          players={pub.players}
-          onConfirm={confirmKeep}
-          onCancel={() => setPendingKeep(null)}
+          card={priv.hand[passCardIndex]!}
+          passToName={passToName}
+          passToId={passToId ?? chainTarget?.id ?? 'guest_room'}
+          players={[
+            ...pub.players.map((p) => ({ id: p.id, name: p.name })),
+            { id: 'guest_room', name: 'Guest Room' },
+          ]}
+          onConfirm={confirmPass}
+          onCancel={() => {
+            setPassCardIndex(null);
+            setPassToId(null);
+          }}
+          allowSelectPassTo
         />
       )}
     </div>
@@ -300,15 +329,15 @@ export function GameTable({
 function phaseTitle(phase: string): string {
   switch (phase) {
     case 'role_assignment':
-      return 'Role Assignment';
+      return 'Card Passing';
     case 'information':
       return 'Description Phase';
     case 'discussion':
-      return 'Open Discussion';
+      return 'Group Discussion';
     case 'voting':
-      return 'Secret Vote';
+      return 'Voting Phase';
     case 'result':
-      return 'Boiler Room';
+      return 'Result Phase';
     default:
       return phase;
   }
@@ -316,13 +345,6 @@ function phaseTitle(phase: string): string {
 
 function nameOf(pub: PlayerMatchView['public'], id: string): string {
   return pub.players.find((p) => p.id === id)?.name ?? id;
-}
-
-function formatRemaining(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
 function SightingForm({
@@ -352,14 +374,14 @@ function SightingForm({
       }}
     >
       <p className="text-sm text-[var(--fog)]">Write your description (truth or lie):</p>
-      <select name="role" className="bg-[var(--bg-mist)] px-3 py-2" defaultValue={roles[0]}>
+      <select name="role" className="field" defaultValue={roles[0]}>
         {roles.map((r) => (
           <option key={r} value={r}>
             {roleLabel(r)}
           </option>
         ))}
       </select>
-      <select name="through" className="bg-[var(--bg-mist)] px-3 py-2" defaultValue={players[0]?.id}>
+      <select name="through" className="field" defaultValue={players[0]?.id}>
         {players.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -370,7 +392,7 @@ function SightingForm({
         name="text"
         rows={2}
         maxLength={200}
-        className="bg-[var(--bg-mist)] px-3 py-2"
+        className="field"
         placeholder="Optional custom wording…"
       />
       <button type="submit" className="bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]">
@@ -405,30 +427,5 @@ function TargetButtons({
         ))}
       </div>
     </div>
-  );
-}
-
-function ChatBox({ onSend }: { onSend: (text: string) => void }) {
-  return (
-    <form
-      className="flex gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const fd = new FormData(e.currentTarget);
-        const text = String(fd.get('text') ?? '').trim();
-        if (text) onSend(text);
-        e.currentTarget.reset();
-      }}
-    >
-      <input
-        name="text"
-        className="flex-1 bg-[var(--bg-mist)] px-3 py-2"
-        placeholder="Say something…"
-        maxLength={280}
-      />
-      <button type="submit" className="border border-[var(--line)] px-4">
-        Send
-      </button>
-    </form>
   );
 }

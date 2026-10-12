@@ -150,11 +150,12 @@ export class GameRoom extends Room {
     }
 
     this.match = createMatch({
-      players: this.seats.map((s) => ({
+      players: this.seats.map((s, i) => ({
         id: s.playerId,
         name: s.name,
         isBot: false,
         seatIndex: s.seatIndex,
+        avatarId: `avatar-${(i % 8) + 1}`,
       })),
       variant: this.variant,
     });

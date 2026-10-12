@@ -11,7 +11,7 @@ export default function SoloPage() {
         <Link href="/" className="text-sm text-[var(--fog)] hover:text-[var(--ember-hot)]">
           ← Home
         </Link>
-        <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Solo vs AI</p>
+        <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Shared match table</p>
       </div>
       <Suspense fallback={<p className="px-4 py-10 text-[var(--fog)]">Loading solo lobby…</p>}>
         <SoloClient />
