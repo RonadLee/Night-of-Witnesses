@@ -21,6 +21,5 @@ WORKDIR /app/apps/game-server
 ENV PORT=2567
 ENV DATA_DIR=/data
 RUN mkdir -p /data
-VOLUME ["/data"]
 EXPOSE 2567
 CMD ["pnpm", "start"]
