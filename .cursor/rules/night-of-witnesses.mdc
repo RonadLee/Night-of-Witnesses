@@ -1,0 +1,16 @@
+---
+description: Night of Witnesses project invariants
+globs:
+  - "**/*.{ts,tsx}"
+alwaysApply: true
+---
+
+# Night of Witnesses
+
+- The game engine (`packages/game-engine`) is the source of truth for all rules and hidden state.
+- Never leak another player's hidden role, the full deck, or Guest Room card to clients except via Spy peek.
+- `getView(state, playerId)` is the only safe payload for a client.
+- Seats: minimum 4, maximum 9.
+- TypeScript strict; prefer small pure functions and Vitest over UI-only logic.
+- Solo and multiplayer must share the same engine; bots call `applyAction` like humans.
+- v1 professions: Doctor, Detective, Spy, Priest. Defer Lawyer, Journalist, Engineer, Psychologist, Merchant.
