@@ -363,3 +363,221 @@ select {
     font-size: 0.65rem;
   }
 }
+
+/* Multiplayer Boiler Room table */
+.mp-shell {
+  display: grid;
+  gap: 16px;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 12px 16px 32px;
+}
+
+.mp-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mp-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mp-felt {
+  position: relative;
+  min-height: 460px;
+  border-radius: 220px;
+  border: 1px solid var(--line);
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--ember) 22%, var(--bg-mist)), var(--bg-deep) 70%);
+}
+
+.mp-seat {
+  position: absolute;
+  width: 132px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.mp-seat.current {
+  border-color: var(--ember);
+  box-shadow: 0 0 0 1px var(--ember);
+}
+
+.mp-seat.offline {
+  opacity: 0.62;
+}
+
+.mp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: #6f8f78;
+  display: inline-block;
+}
+
+.mp-dot.on {
+  background: #3fbf7f;
+}
+
+.mp-dot.talk {
+  background: var(--ember-hot);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ember) 35%, transparent);
+}
+
+.mp-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: min(220px, 40%);
+}
+
+.mp-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.mp-timer.warn {
+  color: var(--danger);
+}
+
+.mp-feed,
+.mp-panel,
+.mp-dock {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.mp-feed {
+  display: flex;
+  min-height: 460px;
+  max-height: 70vh;
+  flex-direction: column;
+}
+
+.mp-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+}
+
+.mp-tabs button[aria-selected='true'] {
+  background: var(--ember);
+  color: #1a0f0a;
+}
+
+.mp-log {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.mp-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.mp-cards {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.mp-card {
+  width: 132px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--bg-mist);
+  color: var(--paper);
+  text-align: left;
+  overflow: hidden;
+}
+
+.mp-card img {
+  display: block;
+  width: 100%;
+  height: 148px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.mp-card.selected {
+  outline: 2px solid var(--ember-hot);
+}
+
+.mp-dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 20;
+}
+
+.mp-dialog article {
+  width: min(440px, 100%);
+  border-radius: 18px;
+  background: var(--bg-deep);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  padding: 18px;
+}
+
+.mp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .mp-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-felt {
+    min-height: 0;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .mp-seat,
+  .mp-center {
+    position: static;
+    transform: none;
+    width: auto;
+  }
+}
