@@ -6,7 +6,14 @@ import type { Action, PlayerMatchView } from '@now/game-types';
 import { MAX_PLAYERS, MIN_PLAYERS } from '@now/game-types';
 import { GameTable } from '@/components/GameTable';
 import { MatchLobby, type LobbySeat } from '@/components/match/MatchLobby';
-import { gameServerUrl } from '@/lib/colyseus';
+import {
+  clearMultiplayerCreds,
+  gameServerHttpUrl,
+  gameServerUrl,
+  loadMultiplayerCreds,
+  saveMultiplayerCreds,
+  type MultiplayerCreds,
+} from '@/lib/colyseus';
 
 interface LobbyState {
   code: string;
@@ -22,13 +29,19 @@ interface LobbyState {
   maxPlayers: number;
 }
 
-function loadPlayerId(): string {
-  const key = 'now_player_id';
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const id = `p_${Math.random().toString(36).slice(2, 10)}`;
-  localStorage.setItem(key, id);
-  return id;
+interface WelcomeMsg {
+  playerId: string;
+  reconnectToken: string;
+  code: string;
+}
+
+function randomRoomCode(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 6)
+    .toUpperCase();
 }
 
 export function MultiplayerClient() {
@@ -40,9 +53,10 @@ export function MultiplayerClient() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const roomRef = useRef<Room | null>(null);
+  const credsRef = useRef<MultiplayerCreds | null>(null);
 
   useEffect(() => {
-    setPlayerId(loadPlayerId());
+    credsRef.current = loadMultiplayerCreds();
     return () => {
       roomRef.current?.leave();
     };
@@ -54,8 +68,19 @@ export function MultiplayerClient() {
     return () => window.clearInterval(id);
   }, [view?.public.phase]);
 
-  const attachRoom = useCallback((room: Room, pid: string) => {
+  const attachRoom = useCallback((room: Room) => {
     roomRef.current = room;
+    room.onMessage('welcome', (msg: WelcomeMsg) => {
+      const next: MultiplayerCreds = {
+        playerId: msg.playerId,
+        reconnectToken: msg.reconnectToken,
+        roomId: room.roomId,
+        code: msg.code,
+      };
+      credsRef.current = next;
+      saveMultiplayerCreds(next);
+      setPlayerId(msg.playerId);
+    });
     room.onMessage('lobby', (msg: LobbyState) => setLobby(msg));
     room.onMessage('view', (msg: PlayerMatchView) => setView(msg));
     room.onMessage('error', (msg: { message: string }) => setError(msg.message));
@@ -66,40 +91,51 @@ export function MultiplayerClient() {
     room.onLeave(() => {
       setError('Disconnected from room');
     });
-    setPlayerId(pid);
   }, []);
 
   async function createRoom() {
-    if (!playerId) return;
     setError(null);
     try {
       const client = new Client(gameServerUrl());
       const room = await client.create('game', {
-        name,
-        playerId,
-        code: Math.random().toString(36).slice(2, 8).toUpperCase(),
+        name: name.trim().slice(0, 24) || 'Guest',
+        code: randomRoomCode(),
       });
-      attachRoom(room, playerId);
+      attachRoom(room);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create room');
     }
   }
 
   async function joinRoom() {
-    if (!playerId) return;
     setError(null);
     try {
-      const client = new Client(gameServerUrl());
-      const rooms = await client.getAvailableRooms('game');
-      const match = rooms.find(
-        (r) => String(r.metadata?.code ?? '').toUpperCase() === joinCode.trim().toUpperCase(),
-      );
-      if (!match) {
-        setError('No room found with that code');
+      const code = joinCode.trim().toUpperCase();
+      if (!code) {
+        setError('Enter a room code');
         return;
       }
-      const room = await client.joinById(match.roomId, { name, playerId });
-      attachRoom(room, playerId);
+
+      const resolveRes = await fetch(`${gameServerHttpUrl()}/rooms/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      if (!resolveRes.ok) {
+        setError(resolveRes.status === 404 ? 'No room found with that code' : 'Unable to resolve room');
+        return;
+      }
+      const { roomId } = (await resolveRes.json()) as { roomId: string };
+
+      const client = new Client(gameServerUrl());
+      const prior = credsRef.current;
+      const room = await client.joinById(roomId, {
+        name: name.trim().slice(0, 24) || 'Guest',
+        ...(prior?.roomId === roomId
+          ? { playerId: prior.playerId, reconnectToken: prior.reconnectToken }
+          : {}),
+      });
+      attachRoom(room);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to join room');
     }
@@ -111,6 +147,14 @@ export function MultiplayerClient() {
 
   function onAction(action: Action) {
     roomRef.current?.send('action', action);
+  }
+
+  function leaveSetup() {
+    clearMultiplayerCreds();
+    credsRef.current = null;
+    setPlayerId(null);
+    setLobby(null);
+    setView(null);
   }
 
   if (view && playerId) {
@@ -157,21 +201,17 @@ export function MultiplayerClient() {
   return (
     <MatchLobby
       modeLabel="Multiplayer"
-      seats={
-        playerId
-          ? [
-              {
-                id: playerId,
-                name: name || 'Guest',
-                seatIndex: 0,
-                avatarId: 'avatar-you',
-                isSelf: true,
-                isHost: true,
-                subtitle: 'Ready to create or join',
-              },
-            ]
-          : []
-      }
+      seats={[
+        {
+          id: 'local',
+          name: name || 'Guest',
+          seatIndex: 0,
+          avatarId: 'avatar-you',
+          isSelf: true,
+          isHost: true,
+          subtitle: 'Ready to create or join',
+        },
+      ]}
       minPlayers={MIN_PLAYERS}
       maxPlayers={MAX_PLAYERS}
       canStart={false}
@@ -212,6 +252,11 @@ export function MultiplayerClient() {
           >
             Join room
           </button>
+          {credsRef.current && (
+            <button type="button" className="text-xs text-[var(--fog-dim)] underline" onClick={leaveSetup}>
+              Clear saved reconnect credentials
+            </button>
+          )}
         </div>
       }
     />
