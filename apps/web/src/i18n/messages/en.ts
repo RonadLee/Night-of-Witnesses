@@ -138,6 +138,7 @@ export const en = {
       faq: 'FAQ',
     },
     noResults: 'No matches. Try another keyword.',
+    searchHits: '{roles} roles · {rules} related rules · {faq} FAQ',
     openDetails: 'Open details',
     backLibrary: '← Game Library',
     roleName: 'Role',

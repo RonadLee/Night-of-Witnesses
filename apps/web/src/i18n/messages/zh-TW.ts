@@ -137,6 +137,7 @@ export const zhTW: MessageTree = {
       faq: '常見問題',
     },
     noResults: '沒有相符結果，請換個關鍵字。',
+    searchHits: '{roles} 個角色 · {rules} 條相關規則 · {faq} 則 FAQ',
     openDetails: '查看詳情',
     backLibrary: '← 遊戲圖鑑',
     roleName: '角色',

@@ -39,12 +39,13 @@ export function LibraryClient() {
   ];
 
   const show = (c: Category) => category === 'all' || category === c;
-  const roles = query ? results.roles : ROLE_LIBRARY;
-  const faq = query ? results.faq : FAQ;
+  const roles = query.trim() ? results.roles : ROLE_LIBRARY;
+  const faq = query.trim() ? results.faq : FAQ;
+  const searching = query.trim().length > 0;
   const hasAny =
-    (show('intro') && (!query || results.intro)) ||
-    (show('rules') && (query ? results.rules.length > 0 : true)) ||
-    (show('flow') && !query) ||
+    (show('intro') && (!searching || results.intro)) ||
+    (show('rules') && (searching ? results.rules.length > 0 : true)) ||
+    (show('flow') && !searching) ||
     ((show('roles') || show('abilities') || show('win')) && roles.length > 0) ||
     (show('faq') && faq.length > 0);
 
@@ -71,6 +72,7 @@ export function LibraryClient() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t.library.searchPlaceholder}
           aria-label={t.library.searchPlaceholder}
+          autoComplete="off"
         />
         <div className="flex gap-2">
           <button
@@ -89,6 +91,15 @@ export function LibraryClient() {
           </button>
         </div>
       </div>
+
+      {searching && (
+        <p className="mt-3 text-sm text-[var(--fog-dim)]" role="status" aria-live="polite">
+          {t.library.searchHits
+            .replace('{roles}', String(results.roles.length))
+            .replace('{rules}', String(results.rules.length))
+            .replace('{faq}', String(results.faq.length))}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {categories.map((c) => (
@@ -111,31 +122,31 @@ export function LibraryClient() {
         <p className="mt-10 text-center text-[var(--fog-dim)]">{t.library.noResults}</p>
       )}
 
-      {show('intro') && (!query || results.intro) && (
+      {show('intro') && (!searching || results.intro) && (
         <section className="mt-10 animate-rise">
           <h2 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
             {t.library.categories.intro}
           </h2>
           <p className="mt-3 max-w-3xl leading-relaxed text-[var(--fog)]">
-            {query ? results.intro || INTRO[locale] : INTRO[locale]}
+            {searching ? results.intro || INTRO[locale] : INTRO[locale]}
           </p>
         </section>
       )}
 
-      {show('rules') && (query ? results.rules.length > 0 : true) && (
+      {show('rules') && (searching ? results.rules.length > 0 : true) && (
         <section className="mt-10">
           <h2 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
             {t.library.categories.rules}
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-[var(--fog)]">
-            {(query ? results.rules : RULES[locale]).map((line) => (
+            {(searching ? results.rules : RULES[locale]).map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
         </section>
       )}
 
-      {show('flow') && !query && (
+      {show('flow') && !searching && (
         <section className="mt-10">
           <h2 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
             {t.library.categories.flow}
@@ -193,7 +204,13 @@ export function LibraryClient() {
                   view === 'list' ? 'flex items-center gap-4' : 'flex flex-col items-center text-center'
                 }`}
               >
-                <RoleCardArt role={role.id as RoleId} size={view === 'grid' ? 'md' : 'sm'} preview={false} />
+                <RoleCardArt
+                  role={role.id as RoleId}
+                  size={view === 'grid' ? 'md' : 'sm'}
+                  preview={false}
+                  decorative
+                  showLabel={false}
+                />
                 <div className={view === 'list' ? 'min-w-0 flex-1 text-left' : 'mt-2'}>
                   <p className="font-semibold">
                     {pickLocaleText(role.name, locale)}
@@ -206,8 +223,9 @@ export function LibraryClient() {
                       {pickLocaleText(role.ability, locale)}
                     </p>
                   )}
-                  {(show('win') || category === 'win') && (
+                  {(show('win') || category === 'win' || searching) && (
                     <p className="mt-1 line-clamp-2 text-xs text-[var(--ember-hot)]">
+                      <span className="text-[var(--fog-dim)]">{t.library.winCondition}: </span>
                       {pickLocaleText(role.win, locale)}
                     </p>
                   )}

@@ -11,7 +11,11 @@ export function LanguageSwitcher({ variant = 'inline', showTitle = false }: Prop
   const { locale, setLocale, t } = useI18n();
 
   return (
-    <div className={variant === 'stack' ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-2'}>
+    <div
+      className={`relative z-20 ${
+        variant === 'stack' ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-2'
+      }`}
+    >
       {showTitle && (
         <p className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">{t.language.title}</p>
       )}
@@ -24,8 +28,13 @@ export function LanguageSwitcher({ variant = 'inline', showTitle = false }: Prop
               type="button"
               role="radio"
               aria-checked={selected}
-              onClick={() => setLocale(code as Locale)}
-              className={`border px-3 py-1.5 text-sm transition ${
+              data-locale={code}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setLocale(code as Locale);
+              }}
+              className={`relative z-20 cursor-pointer border px-3 py-1.5 text-sm transition ${
                 selected
                   ? 'border-[var(--ember)] bg-[var(--ember)] text-[#1a0f0a]'
                   : 'border-[var(--line)] text-[var(--fog)] hover:border-[var(--ember)]'

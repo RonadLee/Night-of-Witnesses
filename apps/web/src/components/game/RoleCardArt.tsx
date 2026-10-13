@@ -22,12 +22,15 @@ interface RoleCardArtProps {
   preview?: boolean;
   /** Accessible label suffix for hand pass tiles */
   passLabel?: boolean;
+  /** Render as a non-interactive figure (safe inside Links) */
+  decorative?: boolean;
   className?: string;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
   onClick?: () => void;
   selected?: boolean;
+  loading?: 'eager' | 'lazy';
 }
 
 export function RoleCardArt({
@@ -36,12 +39,14 @@ export function RoleCardArt({
   showLabel = true,
   preview = true,
   passLabel = false,
+  decorative = false,
   className = '',
   draggable,
   onDragStart,
   onDragEnd,
   onClick,
   selected,
+  loading = 'lazy',
 }: RoleCardArtProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -50,6 +55,7 @@ export function RoleCardArt({
   const label = roleLabel(role, locale);
   const otherLabel = locale === 'en' ? roleLabelZh(role) : roleLabel(role, 'en');
   const passText = t.game.passThisCard;
+  const interactive = !decorative && (preview || Boolean(onClick) || passLabel || draggable);
 
   useEffect(() => {
     if (!open) return;
@@ -60,52 +66,66 @@ export function RoleCardArt({
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  const shellClass = `role-card-art group relative text-left ${SIZE_CLASS[size]} ${
+    selected ? 'ring-2 ring-[var(--ember-hot)]' : ''
+  } ${className}`;
+  const aria = passLabel ? `${passText}: ${label}` : `${label} / ${otherLabel}`;
+
+  const body = (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={decorative ? '' : label}
+        loading={loading}
+        decoding="async"
+        className="role-card-art-img w-full rounded-sm border border-[var(--line)] object-cover shadow-md transition group-hover:brightness-110"
+        draggable={false}
+      />
+      {showLabel && (
+        <span className="mt-1 block text-center text-[0.7rem] font-semibold leading-tight text-[var(--paper)]">
+          {label}
+        </span>
+      )}
+      {passLabel && (
+        <span className="mt-0.5 block text-center text-[0.65rem] text-[var(--fog-dim)]">
+          {passText}
+        </span>
+      )}
+      {preview && interactive && (
+        <span className="pointer-events-none absolute left-1/2 top-0 z-20 hidden w-40 -translate-x-1/2 -translate-y-[105%] rounded border border-[var(--line)] bg-[var(--bg-mist)] p-1 shadow-xl md:group-hover:block">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" className="w-full rounded-sm object-cover" />
+          <span className="mt-1 block text-center text-xs">
+            {label} · {otherLabel}
+          </span>
+        </span>
+      )}
+    </>
+  );
+
   return (
     <>
-      <button
-        type="button"
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onClick={() => {
-          onClick?.();
-          if (preview) setOpen(true);
-        }}
-        onMouseEnter={() => {
-          // Desktop hover opens lightweight preview after delay via CSS group — tap uses modal
-        }}
-        className={`role-card-art group relative text-left ${SIZE_CLASS[size]} ${
-          selected ? 'ring-2 ring-[var(--ember-hot)]' : ''
-        } ${className}`}
-        aria-label={passLabel ? `${passText}: ${label}` : `${label} / ${otherLabel}`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={label}
-          className="role-card-art-img w-full rounded-sm border border-[var(--line)] object-cover shadow-md transition group-hover:brightness-110"
-          draggable={false}
-        />
-        {showLabel && (
-          <span className="mt-1 block text-center text-[0.7rem] font-semibold leading-tight text-[var(--paper)]">
-            {label}
-          </span>
-        )}
-        {passLabel && (
-          <span className="mt-0.5 block text-center text-[0.65rem] text-[var(--fog-dim)]">
-            {passText}
-          </span>
-        )}
-        {preview && (
-          <span className="pointer-events-none absolute left-1/2 top-0 z-20 hidden w-40 -translate-x-1/2 -translate-y-[105%] rounded border border-[var(--line)] bg-[var(--bg-mist)] p-1 shadow-xl md:group-hover:block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt="" className="w-full rounded-sm object-cover" />
-            <span className="mt-1 block text-center text-xs">
-              {label} · {otherLabel}
-            </span>
-          </span>
-        )}
-      </button>
+      {interactive ? (
+        <button
+          type="button"
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onClick={() => {
+            onClick?.();
+            if (preview) setOpen(true);
+          }}
+          className={shellClass}
+          aria-label={aria}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className={shellClass} aria-hidden={decorative || undefined}>
+          {body}
+        </div>
+      )}
 
       {open && preview && (
         <div
