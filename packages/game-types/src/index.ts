@@ -243,3 +243,15 @@ export interface SoloStats {
   unlockedAvatars: string[];
   unlockedThemes: string[];
 }
+
+/** Multiplayer Boiler Room table types (see also `@now/game-types/table`). */
+export type {
+  BoilerRole,
+  SpecialRole,
+  TableAction,
+  TableDeckType,
+  TablePassDirection,
+  TablePlayerView,
+  TableSettings,
+} from './table';
+export { CARD_CATALOG, SPECIAL_ROLES } from './table';
