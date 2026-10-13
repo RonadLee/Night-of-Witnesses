@@ -136,6 +136,19 @@ describe('privacy getView', () => {
     expect(otherRoles.every(Boolean)).toBe(true);
     expect(humanView.public.revealedRoles).toBeNull();
   });
+
+  it('hides other players ticket counts mid-match', () => {
+    let state = forceRoles(createMatch({ players: seats(4), seed: 3 }), [
+      'merchant',
+      'murderer',
+      'guest_yellow',
+      'guest_blue',
+    ]);
+    const outsider = getView(state, 'bot-1');
+    const merchantPublic = outsider.public.players.find((p) => p.id === 'human');
+    expect(merchantPublic?.tickets).toBe(1);
+    expect(getView(state, 'human').private.tickets).toBe(2);
+  });
 });
 
 describe('phase 2 abilities', () => {

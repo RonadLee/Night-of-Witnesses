@@ -17,5 +17,12 @@
   "devDependencies": {
     "prettier": "^3.5.3",
     "typescript": "^5.8.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "nanoid": "3.3.18",
+      "postcss": "8.5.23",
+      "tinypool": "2.1.2"
+    }
   }
 }

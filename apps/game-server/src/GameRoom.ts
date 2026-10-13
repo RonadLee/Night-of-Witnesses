@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Room, Client } from '@colyseus/core';
 import {
   applyAction,
@@ -8,6 +9,8 @@ import {
 } from '@now/game-engine';
 import type { Action, MatchVariant, PlayerMatchView } from '@now/game-types';
 import { MAX_PLAYERS, MIN_PLAYERS } from '@now/game-types';
+import { registerRoom, unregisterRoom } from './roomRegistry';
+import { validateAction } from './validateAction';
 
 interface Seat {
   playerId: string;
@@ -16,11 +19,53 @@ interface Seat {
   seatIndex: number;
   connected: boolean;
   disconnectDeadline: number | null;
+  /** Secret required to reclaim this seat after disconnect. Never broadcast. */
+  reconnectToken: string;
 }
 
 interface JoinOptions {
   name?: string;
   playerId?: string;
+  reconnectToken?: string;
+}
+
+function newToken(): string {
+  return randomBytes(24).toString('base64url');
+}
+
+function newPlayerId(): string {
+  return `p_${randomBytes(9).toString('base64url')}`;
+}
+
+const ALLOWED_VARIANT_KEYS = new Set([
+  'deckType',
+  'rounds',
+  'descriptionSeconds',
+  'discussionSeconds',
+  'votingSeconds',
+  'passDirection',
+  'speech',
+  'seed',
+]);
+
+function sanitizeVariant(input: Partial<MatchVariant> | undefined): Partial<MatchVariant> {
+  if (!input || typeof input !== 'object') return {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (!ALLOWED_VARIANT_KEYS.has(k)) continue;
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) continue;
+      if (k === 'rounds') out[k] = Math.min(9, Math.max(1, Math.floor(v)));
+      else if (k.endsWith('Seconds')) out[k] = Math.min(600, Math.max(5, Math.floor(v)));
+      else if (k === 'seed') out[k] = Math.floor(v);
+      else out[k] = v;
+    } else if (typeof v === 'string' && v.length <= 32) {
+      out[k] = v;
+    } else if (typeof v === 'boolean') {
+      out[k] = v;
+    }
+  }
+  return out as Partial<MatchVariant>;
 }
 
 export class GameRoom extends Room {
@@ -34,32 +79,53 @@ export class GameRoom extends Room {
   private reconnectMs = 60_000;
 
   onCreate(options: { code?: string; variant?: Partial<MatchVariant> }) {
-    this.roomCode = options.code ?? this.roomId.slice(0, 6).toUpperCase();
-    this.variant = options.variant ?? {};
-    this.setMetadata({ code: this.roomCode });
+    const requested = typeof options.code === 'string' ? options.code : '';
+    this.roomCode = registerRoom(requested || this.roomId.slice(0, 6), this.roomId);
+    this.variant = sanitizeVariant(options.variant);
+    // Do not publish join codes via realtime listing metadata
+    this.setMetadata({ listed: false });
     this.setSimulationInterval((dt) => this.pump(dt), 1000);
 
     this.onMessage('start', (client) => this.handleStart(client));
-    this.onMessage('action', (client, message: Action) => this.handleAction(client, message));
+    this.onMessage('action', (client, message: unknown) => this.handleAction(client, message));
     this.onMessage('ping_view', (client) => this.sendView(client));
+  }
+
+  onDispose() {
+    unregisterRoom(this.roomId);
   }
 
   onJoin(client: Client, options: JoinOptions) {
     const name = (options.name ?? 'Guest').trim().slice(0, 24) || 'Guest';
-    const requestedId = options.playerId;
+    const requestedId = typeof options.playerId === 'string' ? options.playerId.slice(0, 64) : undefined;
+    const token =
+      typeof options.reconnectToken === 'string' ? options.reconnectToken.slice(0, 128) : undefined;
 
-    // Reconnect to existing seat
-    if (requestedId) {
+    // Reconnect only with matching secret token
+    if (requestedId && token) {
       const seat = this.seats.find((s) => s.playerId === requestedId);
-      if (seat && !seat.connected) {
+      if (seat && !seat.connected && seat.reconnectToken === token) {
         seat.sessionId = client.sessionId;
         seat.connected = true;
         seat.disconnectDeadline = null;
         client.userData = { playerId: seat.playerId };
+        client.send('welcome', {
+          playerId: seat.playerId,
+          reconnectToken: seat.reconnectToken,
+          code: this.roomCode,
+        });
         this.broadcastLobby();
         this.sendView(client);
         return;
       }
+      if (seat) {
+        throw new Error('Unable to reclaim seat');
+      }
+    }
+
+    // Reject hijack of an already-connected seat id
+    if (requestedId && this.seats.some((s) => s.playerId === requestedId)) {
+      throw new Error('Player already seated');
     }
 
     if (this.match) {
@@ -69,7 +135,9 @@ export class GameRoom extends Room {
       throw new Error('Room full');
     }
 
-    const playerId = requestedId ?? `p_${client.sessionId}`;
+    // Server issues identity — ignore client-chosen ids for new seats
+    const playerId = newPlayerId();
+    const reconnectToken = newToken();
     const seat: Seat = {
       playerId,
       name,
@@ -77,10 +145,16 @@ export class GameRoom extends Room {
       seatIndex: this.seats.length,
       connected: true,
       disconnectDeadline: null,
+      reconnectToken,
     };
     this.seats.push(seat);
     if (!this.hostPlayerId) this.hostPlayerId = playerId;
     client.userData = { playerId };
+    client.send('welcome', {
+      playerId,
+      reconnectToken,
+      code: this.roomCode,
+    });
     this.broadcastLobby();
   }
 
@@ -95,7 +169,6 @@ export class GameRoom extends Room {
     seat.disconnectDeadline = Date.now() + this.reconnectMs;
 
     if (!this.match) {
-      // Remove from lobby immediately
       this.seats = this.seats.filter((s) => s.playerId !== playerId);
       this.seats.forEach((s, i) => {
         s.seatIndex = i;
@@ -116,7 +189,6 @@ export class GameRoom extends Room {
   private pump(_dt: number) {
     const now = Date.now();
 
-    // Drop timed-out reconnects mid-match
     if (this.match) {
       const before = this.seats.length;
       this.seats = this.seats.filter(
@@ -163,19 +235,34 @@ export class GameRoom extends Room {
     this.broadcast('started', { ok: true });
   }
 
-  private handleAction(client: Client, action: Action) {
+  private handleAction(client: Client, raw: unknown) {
     if (!this.match) {
       client.send('error', { message: 'Match not started' });
       return;
     }
     const playerId = client.userData?.playerId as string;
-    const result = applyAction(this.match, playerId, action);
-    if (!result.ok) {
-      client.send('error', { message: result.error });
+    if (!playerId) {
+      client.send('error', { message: 'Not seated' });
       return;
     }
-    this.match = result.state;
-    this.pushAllViews();
+
+    const validated = validateAction(raw);
+    if (!validated.ok) {
+      client.send('error', { message: validated.error });
+      return;
+    }
+
+    try {
+      const result = applyAction(this.match, playerId, validated.action as Action);
+      if (!result.ok) {
+        client.send('error', { message: result.error });
+        return;
+      }
+      this.match = result.state;
+      this.pushAllViews();
+    } catch {
+      client.send('error', { message: 'Action failed' });
+    }
   }
 
   private pushAllViews() {

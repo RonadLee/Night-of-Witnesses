@@ -273,6 +273,7 @@ function handleKeepCard(
 
   // Backward compatible: omitted claim = tell the truth
   const claimedRole = claimedRoleInput ?? pass;
+  const safeReason = reason?.trim().slice(0, 280) || undefined;
 
   player.role = keep;
   player.hand = [];
@@ -290,7 +291,7 @@ function handleKeepCard(
       toPlayerId: 'guest_room',
       actualRole: pass,
       claimedRole,
-      reason,
+      reason: safeReason,
     });
     state.lastPassAnimation = {
       fromPlayerId: playerId,
@@ -317,7 +318,7 @@ function handleKeepCard(
     toPlayerId: recipient.id,
     actualRole: pass,
     claimedRole,
-    reason,
+    reason: safeReason,
   });
   state.lastPassAnimation = {
     fromPlayerId: playerId,
@@ -358,9 +359,10 @@ function handleSighting(
   const through = playerById(state, claimedThroughPlayerId);
   if (!through) return fail(state, 'Invalid sighting target');
 
-  const message =
+  const message = (
     text?.trim() ||
-    `I saw the ${roleLabel(claimedRole)} card pass through ${through.name}`;
+    `I saw the ${roleLabel(claimedRole)} card pass through ${through.name}`
+  ).slice(0, 280);
 
   state.sightings.push({
     fromPlayerId: playerId,
@@ -431,7 +433,8 @@ function handleButler(
   const b = playerById(state, targetB);
   if (!a?.role || !b?.role) return fail(state, 'Invalid targets');
   if (!isGuestRole(a.role) || !isGuestRole(b.role)) {
-    return fail(state, 'Butler may only reveal Guest roles');
+    // Generic error — do not confirm whether targets are non-guests
+    return fail(state, 'Invalid targets');
   }
 
   state.butlerPeeks[playerId] = [
@@ -448,7 +451,7 @@ function handleButler(
     summary: `${actor.name} secretly viewed two guests.`,
     privateTo: playerId,
   });
-  pushActivity(state, 'ability', `${actor.name} used Butler (private).`, playerId, now);
+  pushActivity(state, 'ability', `${actor.name} used a private ability.`, playerId, now);
   return finishAbility(state, playerId, now);
 }
 
@@ -473,7 +476,7 @@ function handleLawyer(
     summary: `${actor.name} marked a player's ticket for invalidation.`,
     privateTo: playerId,
   });
-  pushActivity(state, 'ability', `${actor.name} used Lawyer (private).`, playerId, now);
+  pushActivity(state, 'ability', `${actor.name} used a private ability.`, playerId, now);
   return finishAbility(state, playerId, now);
 }
 

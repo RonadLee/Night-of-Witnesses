@@ -80,7 +80,11 @@ export function getView(state: MatchState, playerId: string): PlayerMatchView {
       difficulty: p.difficulty,
       status: playerStatus(state, p.id),
       currentAction: p.currentAction,
-      tickets: p.tickets,
+      // Hide others' ticket weights mid-match (Merchant fingerprint). Self uses private.tickets.
+      tickets:
+        state.phase === 'result' || p.id === playerId
+          ? p.tickets
+          : 1,
       roleRevealed: p.roleRevealed,
     })),
     currentPlayerId: current?.id ?? null,
