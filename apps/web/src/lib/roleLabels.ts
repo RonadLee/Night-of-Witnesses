@@ -52,8 +52,9 @@ export const ROLE_IMAGES: Record<RoleId, string> = {
   guest_red: '/roles/guest-red.png',
 };
 
-export function roleLabel(role: RoleId | null | undefined): string {
+export function roleLabel(role: RoleId | null | undefined, locale: 'en' | 'zh-TW' = 'en'): string {
   if (!role) return '—';
+  if (locale === 'zh-TW') return ROLE_LABELS_ZH[role] ?? role;
   return ROLE_LABELS[role] ?? role;
 }
 

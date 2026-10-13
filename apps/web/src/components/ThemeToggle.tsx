@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useI18n } from '@/i18n';
 
 export function ThemeToggle() {
+  const { t } = useI18n();
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   useEffect(() => {
@@ -24,9 +26,9 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       className="border border-[var(--line)] px-3 py-1.5 text-xs tracking-wide uppercase"
-      aria-label="Toggle color theme"
+      aria-label={t.theme.lightMode}
     >
-      {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+      {theme === 'dark' ? t.theme.lightMode : t.theme.darkMode}
     </button>
   );
 }

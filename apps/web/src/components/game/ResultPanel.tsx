@@ -3,6 +3,7 @@
 import type { PlayerMatchView, WinnerSide } from '@now/game-types';
 import { roleLabel, roleLabelZh } from '@/lib/roleLabels';
 import { RoleCardArt } from '@/components/game/RoleCardArt';
+import { useI18n } from '@/i18n';
 
 interface Props {
   view: PlayerMatchView;
@@ -10,46 +11,36 @@ interface Props {
   onLobby: () => void;
 }
 
-function winnerTitle(side: WinnerSide): string {
-  switch (side) {
-    case 'guest_side':
-      return 'Guest side wins';
-    case 'murderer_side':
-      return 'Murderer side wins';
-    case 'bomber':
-      return 'Bomber wins alone';
-    case 'none':
-      return 'No winner';
-    default:
-      return 'Round ended';
-  }
-}
-
 export function ResultPanel({ view, onAgain, onLobby }: Props) {
+  const { t, locale } = useI18n();
   const pub = view.public;
   const roomId = pub.privateRoomPlayerId ?? pub.lockedPlayerId;
-  const roomName = roomId ? (pub.players.find((p) => p.id === roomId)?.name ?? roomId) : 'nobody';
+  const roomName = roomId ? (pub.players.find((p) => p.id === roomId)?.name ?? roomId) : '—';
+  const winnerTitle =
+    pub.winnerSide && pub.winnerSide in t.winners
+      ? t.winners[pub.winnerSide as keyof typeof t.winners]
+      : t.winners.ended;
 
   return (
     <section className="animate-rise border border-[var(--ember)] bg-[var(--panel)] px-4 py-5">
       <h3 className="text-2xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
-        {winnerTitle(pub.winnerSide)}
+        {winnerTitle}
       </h3>
       <p className="mt-2 text-[var(--fog)]">
-        Private Room (爆鎖室) occupant: <strong>{roomName}</strong>
+        {t.game.privateRoom} {t.game.occupant}: <strong>{roomName}</strong>
       </p>
 
       {pub.winningRoleIds.length > 0 && (
         <p className="mt-2 text-sm text-[var(--fog)]">
-          Winning roles:{' '}
-          {pub.winningRoleIds.map((r) => `${roleLabel(r)} / ${roleLabelZh(r)}`).join(', ')}
+          {t.game.winningRoles}:{' '}
+          {pub.winningRoleIds.map((r) => `${roleLabel(r, locale)} / ${roleLabelZh(r)}`).join(', ')}
         </p>
       )}
 
       {pub.revealedRoles && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Full role reveal
+            {t.game.fullReveal}
           </h4>
           <ul className="mt-2 flex flex-wrap gap-3">
             {pub.players.map((p) => {
@@ -72,7 +63,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.voteTallies && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Vote distribution
+            {t.game.voteDist}
           </h4>
           <ul className="mt-1 space-y-1 text-sm text-[var(--fog)]">
             {Object.entries(pub.voteTallies).map(([id, n]) => (
@@ -87,7 +78,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.ticketBreakdown && pub.ticketBreakdown.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Ticket calculations
+            {t.game.ticketCalc}
           </h4>
           <ul className="mt-1 space-y-1 text-sm text-[var(--fog)]">
             {pub.ticketBreakdown.map((t) => {
@@ -110,7 +101,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.abilityReveals.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Detective / ability actions
+            {t.game.abilityActions}
           </h4>
           <ul className="mt-1 space-y-1 text-sm text-[var(--fog)]">
             {pub.abilityReveals.map((r, i) => (
@@ -123,7 +114,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.passHistory.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Pass history (claim vs actual)
+            {t.game.passHistory}
           </h4>
           <ul className="mt-2 space-y-3">
             {pub.passHistory.map((h, i) => {
@@ -141,20 +132,20 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
                   <p className="font-semibold">
                     {from} → {to}
                     {bluff ? (
-                      <span className="ml-2 text-[var(--ember-hot)]">bluff</span>
+                      <span className="ml-2 text-[var(--ember-hot)]">{t.game.bluff}</span>
                     ) : (
-                      <span className="ml-2 text-[var(--fog-dim)]">truth</span>
+                      <span className="ml-2 text-[var(--fog-dim)]">{t.game.truth}</span>
                     )}
                   </p>
                   <div className="mt-2 flex flex-wrap items-end gap-4">
                     <div>
-                      <p className="mb-1 text-xs text-[var(--fog-dim)] uppercase">Claimed</p>
+                      <p className="mb-1 text-xs text-[var(--fog-dim)] uppercase">{t.game.claimed}</p>
                       <RoleCardArt role={h.claimedRole} size="sm" />
                     </div>
                     {h.actualRole && (
                       <div>
                         <p className="mb-1 text-xs text-[var(--fog-dim)] uppercase">
-                          Actually passed
+                          {t.game.actuallyPassed}
                         </p>
                         <RoleCardArt role={h.actualRole} size="sm" />
                       </div>
@@ -170,7 +161,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.chat.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Discussion timeline
+            {t.game.discussionTimeline}
           </h4>
           <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto text-sm text-[var(--fog)]">
             {pub.chat.map((c, i) => (
@@ -185,7 +176,7 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
       {pub.aiReasoning.length > 0 && (
         <div className="mt-4">
           <h4 className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            AI reasoning summary
+            {t.game.aiReasoning}
           </h4>
           <ul className="mt-1 space-y-1 text-sm text-[var(--fog)]">
             {pub.aiReasoning.map((r) => (
@@ -201,10 +192,10 @@ export function ResultPanel({ view, onAgain, onLobby }: Props) {
           className="bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]"
           onClick={onAgain}
         >
-          Play again
+          {t.game.playAgain}
         </button>
         <button type="button" className="border border-[var(--fog)] px-4 py-3" onClick={onLobby}>
-          Back to lobby
+          {t.game.backToLobby}
         </button>
       </div>
     </section>

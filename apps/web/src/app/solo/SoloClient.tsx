@@ -14,6 +14,7 @@ import type { Action, AiDifficulty, DeckType, PassDirection, PlayerMatchView, So
 import { MIN_PLAYERS, MAX_PLAYERS } from '@now/game-types';
 import { GameTable } from '@/components/GameTable';
 import { MatchLobby } from '@/components/match/MatchLobby';
+import { useI18n } from '@/i18n';
 import {
   autosave,
   clearSave,
@@ -44,6 +45,7 @@ function leagueDifficulty(league: SoloLobbyConfig['campaignLeague']): AiDifficul
 }
 
 export function SoloClient() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const fastMode = searchParams.get('fast') === '1';
   const [screen, setScreen] = useState<'lobby' | 'table'>('lobby');
@@ -243,7 +245,6 @@ export function SoloClient() {
         minPlayers={MIN_PLAYERS}
         maxPlayers={MAX_PLAYERS}
         canStart
-        startLabel="Start match"
         onStart={start}
         error={error}
         setupSlot={
@@ -282,7 +283,7 @@ export function SoloClient() {
             setState(null);
           }}
         >
-          ← Lobby
+          {t.nav.backLobby}
         </button>
         <button
           type="button"

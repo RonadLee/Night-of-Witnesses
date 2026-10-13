@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { RoleId } from '@now/game-types';
 import { roleImage, roleLabel, roleLabelZh } from '@/lib/roleLabels';
+import { useI18n } from '@/i18n';
 
 type Size = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -42,10 +43,13 @@ export function RoleCardArt({
   onClick,
   selected,
 }: RoleCardArtProps) {
+  const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const src = roleImage(role);
-  const label = roleLabel(role);
+  const label = roleLabel(role, locale);
+  const otherLabel = locale === 'en' ? roleLabelZh(role) : roleLabel(role, 'en');
+  const passText = t.game.passThisCard;
 
   useEffect(() => {
     if (!open) return;
@@ -73,11 +77,7 @@ export function RoleCardArt({
         className={`role-card-art group relative text-left ${SIZE_CLASS[size]} ${
           selected ? 'ring-2 ring-[var(--ember-hot)]' : ''
         } ${className}`}
-        aria-label={
-          passLabel
-            ? `Pass this card: ${label}`
-            : `${label} / ${roleLabelZh(role)}`
-        }
+        aria-label={passLabel ? `${passText}: ${label}` : `${label} / ${otherLabel}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -93,7 +93,7 @@ export function RoleCardArt({
         )}
         {passLabel && (
           <span className="mt-0.5 block text-center text-[0.65rem] text-[var(--fog-dim)]">
-            Pass this card
+            {passText}
           </span>
         )}
         {preview && (
@@ -101,7 +101,7 @@ export function RoleCardArt({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt="" className="w-full rounded-sm object-cover" />
             <span className="mt-1 block text-center text-xs">
-              {label} · {roleLabelZh(role)}
+              {label} · {otherLabel}
             </span>
           </span>
         )}
@@ -120,7 +120,7 @@ export function RoleCardArt({
             onClick={(e) => e.stopPropagation()}
           >
             <p id={titleId} className="mb-2 text-center text-sm text-[var(--fog)]">
-              {label} · {roleLabelZh(role)}
+              {label} · {otherLabel}
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt={label} className="mx-auto max-h-[70vh] w-auto rounded object-contain" />
@@ -129,7 +129,7 @@ export function RoleCardArt({
               className="mt-3 w-full border border-[var(--line)] px-3 py-2 text-sm"
               onClick={() => setOpen(false)}
             >
-              Close
+              {t.game.close}
             </button>
           </div>
         </div>

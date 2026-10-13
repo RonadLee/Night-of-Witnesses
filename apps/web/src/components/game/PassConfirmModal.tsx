@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { RoleId } from '@now/game-types';
 import { ALL_ROLE_IDS, roleLabel } from '@/lib/roleLabels';
 import { RoleCardArt } from '@/components/game/RoleCardArt';
+import { useI18n } from '@/i18n';
 
 interface Props {
   card: RoleId;
@@ -24,12 +25,15 @@ export function PassConfirmModal({
   onCancel,
   allowSelectPassTo = false,
 }: Props) {
+  const { t } = useI18n();
   const [claimedRole, setClaimedRole] = useState<RoleId>(card);
   const [toId, setToId] = useState(passToId);
   const [submitting, setSubmitting] = useState(false);
 
   const toName =
-    toId === 'guest_room' ? 'Guest Room' : (players.find((p) => p.id === toId)?.name ?? passToName);
+    toId === 'guest_room'
+      ? t.game.guestRoom
+      : (players.find((p) => p.id === toId)?.name ?? passToName);
 
   return (
     <div
@@ -57,11 +61,11 @@ export function PassConfirmModal({
           className="text-xl font-bold"
           style={{ fontFamily: 'var(--font-display)' }}
         >
-          Confirm pass
+          {t.game.confirmPass}
         </h3>
 
         <div className="mt-4">
-          <p className="text-sm text-[var(--fog)]">Actual Card To Pass</p>
+          <p className="text-sm text-[var(--fog)]">{t.game.actualCard}</p>
           <div className="mt-2 flex items-start gap-3">
             <RoleCardArt role={card} size="md" preview />
             <p className="text-sm text-[var(--fog-dim)]">
@@ -72,10 +76,8 @@ export function PassConfirmModal({
         </div>
 
         <div className="mt-5">
-          <p className="text-sm text-[var(--fog)]">Claim To Recipient That You Passed</p>
-          <p className="text-xs text-[var(--fog-dim)]">
-            May match the actual card or be a bluff.
-          </p>
+          <p className="text-sm text-[var(--fog)]">{t.game.claimCard}</p>
+          <p className="text-xs text-[var(--fog-dim)]">{t.game.claimHint}</p>
           <div className="mt-2 grid max-h-48 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
             {ALL_ROLE_IDS.map((r) => (
               <RoleCardArt
@@ -89,17 +91,17 @@ export function PassConfirmModal({
             ))}
           </div>
           <p className="mt-2 text-sm">
-            Claiming: <strong>{roleLabel(claimedRole)}</strong>
+            {t.game.claiming}: <strong>{roleLabel(claimedRole)}</strong>
             {claimedRole !== card ? (
-              <span className="ml-2 text-[var(--ember-hot)]">(bluff)</span>
+              <span className="ml-2 text-[var(--ember-hot)]">({t.game.bluff})</span>
             ) : (
-              <span className="ml-2 text-[var(--fog-dim)]">(truth)</span>
+              <span className="ml-2 text-[var(--fog-dim)]">({t.game.truth})</span>
             )}
           </p>
         </div>
 
         <label className="mt-4 flex flex-col gap-1 text-sm text-[var(--fog)]">
-          Recipient
+          {t.game.recipient}
           <select
             name="passTo"
             className="field"
@@ -119,14 +121,8 @@ export function PassConfirmModal({
         </label>
 
         <label className="mt-4 flex flex-col gap-1 text-sm text-[var(--fog)]">
-          Reason (optional)
-          <textarea
-            name="reason"
-            rows={2}
-            maxLength={120}
-            className="field"
-            placeholder="Why this card / claim?"
-          />
+          {t.game.reasonOptional}
+          <textarea name="reason" rows={2} maxLength={120} className="field" />
         </label>
 
         <div className="mt-5 flex gap-2">
@@ -135,14 +131,14 @@ export function PassConfirmModal({
             disabled={submitting}
             className="flex-1 bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a] disabled:opacity-60"
           >
-            Confirm Pass
+            {t.game.confirmPass}
           </button>
           <button
             type="button"
             className="flex-1 border border-[var(--line)] px-4 py-3"
             onClick={onCancel}
           >
-            Cancel
+            {t.game.cancel}
           </button>
         </div>
       </form>

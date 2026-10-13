@@ -2,6 +2,7 @@
 
 import type { ActivityEvent, PlayerMatchView } from '@now/game-types';
 import { RoleCardArt } from '@/components/game/RoleCardArt';
+import { useI18n } from '@/i18n';
 
 interface MatchChatProps {
   view: PlayerMatchView;
@@ -11,7 +12,9 @@ interface MatchChatProps {
 }
 
 export function MatchChat({ view, selfId, canChat, onSend }: MatchChatProps) {
+  const { t } = useI18n();
   const pub = view.public;
+  const silenced = Boolean(pub.players.find((p) => p.id === selfId)?.isSilenced);
   const events: Array<{
     id: string;
     at: number;
@@ -39,13 +42,11 @@ export function MatchChat({ view, selfId, canChat, onSend }: MatchChatProps) {
   return (
     <section className="match-chat border border-[var(--line)] bg-[var(--panel)]">
       <header className="border-b border-[var(--line)] px-3 py-2">
-        <p className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-          Table chat & activity
-        </p>
+        <p className="text-xs tracking-[0.14em] text-[var(--fog-dim)] uppercase">{t.game.chatTitle}</p>
       </header>
       <div className="match-chat-scroll max-h-56 space-y-2 overflow-y-auto px-3 py-2 text-sm">
         {events.length === 0 ? (
-          <p className="text-[var(--fog-dim)]">Waiting for the first move…</p>
+          <p className="text-[var(--fog-dim)]">{t.game.waitingMoves}</p>
         ) : (
           events.map((e) => (
             <div
@@ -76,16 +77,12 @@ export function MatchChat({ view, selfId, canChat, onSend }: MatchChatProps) {
           <input
             name="text"
             className="field flex-1 !py-2"
-            placeholder={
-              pub.players.find((p) => p.id === selfId)?.isSilenced
-                ? 'You are silenced…'
-                : 'Say something…'
-            }
+            placeholder={silenced ? t.game.silenced : t.game.chatPlaceholder}
             maxLength={280}
-            disabled={Boolean(pub.players.find((p) => p.id === selfId)?.isSilenced)}
+            disabled={silenced}
           />
           <button type="submit" className="border border-[var(--line)] px-3 py-2 text-sm">
-            Send
+            {t.game.send}
           </button>
         </form>
       )}

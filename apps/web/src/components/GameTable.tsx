@@ -10,6 +10,8 @@ import { PassConfirmModal } from '@/components/game/PassConfirmModal';
 import { PassFlyAnimation } from '@/components/game/PassFlyAnimation';
 import { ResultPanel } from '@/components/game/ResultPanel';
 import { RoleCardArt } from '@/components/game/RoleCardArt';
+import { InGameMenu } from '@/components/InGameMenu';
+import { useI18n } from '@/i18n';
 
 interface GameTableProps {
   view: PlayerMatchView;
@@ -30,9 +32,12 @@ export function GameTable({
   onBackLobby,
   now = Date.now(),
 }: GameTableProps) {
+  const { t } = useI18n();
   const { public: pub, private: priv } = view;
   const legal = new Set(priv.legalActions);
   const others = pub.players.filter((p) => p.id !== selfId);
+  const phaseLabel =
+    t.phases[pub.phase as keyof typeof t.phases] ?? pub.phase;
   const [passCardIndex, setPassCardIndex] = useState<0 | 1 | null>(null);
   const [passToId, setPassToId] = useState<string | null>(null);
   const [dragOverSeatId, setDragOverSeatId] = useState<string | null>(null);
@@ -96,24 +101,21 @@ export function GameTable({
     <div className="match-shell mx-auto flex w-full max-w-5xl flex-col gap-4 px-3 py-4 md:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] pb-3">
         <div>
-          <p className="text-xs tracking-[0.18em] text-[var(--fog-dim)] uppercase">
-            Night of Witnesses
-          </p>
+          <p className="text-xs tracking-[0.18em] text-[var(--fog-dim)] uppercase">{t.brand}</p>
           <h2
             className="text-2xl font-bold md:text-3xl"
             style={{ fontFamily: 'var(--font-display)' }}
           >
-            {phaseTitle(pub.phase)}
+            {phaseLabel}
           </h2>
           <p className="text-sm text-[var(--fog)]">
-            Round {pub.round}/{pub.maxRounds}
+            {t.game.round} {pub.round}/{pub.maxRounds}
           </p>
         </div>
-        <MatchTimer
-          phaseEndsAt={pub.phaseEndsAt}
-          now={now}
-          phaseLabel={phaseTitle(pub.phase)}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <InGameMenu />
+          <MatchTimer phaseEndsAt={pub.phaseEndsAt} now={now} phaseLabel={phaseLabel} />
+        </div>
       </header>
 
       {statusMessage && (
@@ -155,10 +157,7 @@ export function GameTable({
 
       {dropEnabled && priv.hand.length === 2 && (
         <section className="match-hand" aria-label="Your hand">
-          <p className="mb-2 text-sm text-[var(--fog)]">
-            Drag a card onto a seat to pass it, or tap a card then tap a seat. You keep the other
-            card — then choose what to claim.
-          </p>
+          <p className="mb-2 text-sm text-[var(--fog)]">{t.game.passHint}</p>
           <div className="flex flex-wrap justify-center gap-4">
             {([0, 1] as const).map((idx) => (
               <div key={idx} className="card-tile flex flex-col items-center gap-2">
@@ -186,7 +185,7 @@ export function GameTable({
               className="mt-3 border border-[var(--fog)] px-4 py-3 text-sm"
               onClick={() => openPassConfirm(selectedCard, chainTarget.id)}
             >
-              Pass to {chainTarget.name} (chain)
+              {t.game.passChain.replace('{name}', chainTarget.name)}
             </button>
           )}
         </section>
@@ -194,11 +193,15 @@ export function GameTable({
 
       <section className="flex flex-col gap-3 border border-[var(--line)] bg-[var(--panel)] px-4 py-3 sm:flex-row sm:items-start">
         <div className="flex-1">
-          <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">Your secrets</p>
-          <p className="mt-1 text-lg">
-            Role: <strong>{priv.role ? roleLabel(priv.role) : '—'}</strong>
+          <p className="text-xs tracking-[0.16em] text-[var(--fog-dim)] uppercase">
+            {t.game.yourSecrets}
           </p>
-          <p className="mt-1 text-sm text-[var(--fog)]">Tickets: {priv.tickets}</p>
+          <p className="mt-1 text-lg">
+            {t.game.role}: <strong>{priv.role ? roleLabel(priv.role) : '—'}</strong>
+          </p>
+          <p className="mt-1 text-sm text-[var(--fog)]">
+            {t.game.tickets}: {priv.tickets}
+          </p>
           {priv.butlerPeek && priv.butlerPeek.length > 0 && (
             <div className="mt-2 text-sm">
               <p className="text-[var(--fog-dim)]">Butler peek (private):</p>
@@ -222,7 +225,7 @@ export function GameTable({
       {pub.sightings.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm tracking-[0.14em] text-[var(--fog-dim)] uppercase">
-            Descriptions
+            {t.game.descriptions}
           </h3>
           <ul className="space-y-2 text-sm">
             {pub.sightings.map((s, i) => (
@@ -255,6 +258,7 @@ export function GameTable({
           <SightingForm
             roles={ALL_ROLE_IDS}
             players={others}
+            submitLabel={t.game.announceSighting}
             onSubmit={(claimedRole, claimedThroughPlayerId, text) =>
               onAction({
                 type: 'announce_sighting',
@@ -291,7 +295,7 @@ export function GameTable({
             className="border border-[var(--line)] px-4 py-3 text-[var(--fog)]"
             onClick={() => onAction({ type: 'skip_ability' })}
           >
-            Skip ability
+            {t.game.skipAbility}
           </button>
         )}
         {legal.has('end_discussion') && (
@@ -300,15 +304,10 @@ export function GameTable({
             className="bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]"
             onClick={() => onAction({ type: 'end_discussion' })}
           >
-            End discussion / go to vote
+            {t.game.endDiscussion}
           </button>
         )}
-        {voteEnabled && (
-          <p className="text-sm text-[var(--fog)]">
-            Click any seat to vote them into the Private Room (爆鎖室). Merchant votes count as 2
-            tickets.
-          </p>
-        )}
+        {voteEnabled && <p className="text-sm text-[var(--fog)]">{t.game.voteHint}</p>}
       </section>
 
       {passCardIndex !== null && priv.hand[passCardIndex] && (
@@ -332,23 +331,6 @@ export function GameTable({
   );
 }
 
-function phaseTitle(phase: string): string {
-  switch (phase) {
-    case 'role_assignment':
-      return 'Card Passing';
-    case 'information':
-      return 'Description Phase';
-    case 'discussion':
-      return 'Group Discussion';
-    case 'voting':
-      return 'Voting Phase';
-    case 'result':
-      return 'Result Phase';
-    default:
-      return phase;
-  }
-}
-
 function nameOf(pub: PlayerMatchView['public'], id: string): string {
   return pub.players.find((p) => p.id === id)?.name ?? id;
 }
@@ -356,10 +338,12 @@ function nameOf(pub: PlayerMatchView['public'], id: string): string {
 function SightingForm({
   roles,
   players,
+  submitLabel,
   onSubmit,
 }: {
   roles: RoleId[];
   players: Array<{ id: string; name: string }>;
+  submitLabel: string;
   onSubmit: (role: RoleId, through: string, text: string) => void;
 }) {
   return (
@@ -402,7 +386,7 @@ function SightingForm({
         placeholder="Optional custom wording…"
       />
       <button type="submit" className="bg-[var(--ember)] px-4 py-3 font-semibold text-[#1a0f0a]">
-        Announce sighting
+        {submitLabel}
       </button>
     </form>
   );
