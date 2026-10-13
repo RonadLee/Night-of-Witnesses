@@ -64,7 +64,7 @@ export function RoleDetailClient({ roleId }: Props) {
 
       <article className="animate-rise border border-[var(--line)] bg-[var(--panel)] p-5">
         <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-          <RoleCardArt role={role.id} size="lg" />
+          <RoleCardArt role={role.id} size="lg" loading="eager" />
           <div className="flex-1">
             <h1 className="text-3xl font-extrabold" style={{ fontFamily: 'var(--font-display)' }}>
               {pickLocaleText(role.name, locale)}
@@ -118,7 +118,7 @@ export function RoleDetailClient({ roleId }: Props) {
         <div className="mt-3 flex flex-wrap gap-3">
           {related.map((r) => (
             <Link key={r.id} href={`/library/roles/${r.id}`} className="hover:opacity-90">
-              <RoleCardArt role={r.id} size="sm" preview={false} />
+              <RoleCardArt role={r.id} size="sm" preview={false} decorative />
             </Link>
           ))}
         </div>
